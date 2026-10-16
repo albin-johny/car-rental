@@ -9,24 +9,39 @@ Mobile-first PWA for managing one car-rental business (up to ~50 vehicles, ~3 ac
 
 | Phase | Scope | Status |
 | --- | --- | --- |
-| 1 | Foundation: auth, roles, vehicles, vehicle photos, PWA shell | ✅ Built and deployed; edit, deactivate and photo upload still to be verified on a phone |
-| 2 | Customers, bookings, availability, rental lifecycle, pickup/return inspections | ⏳ Next |
-| 3 | Charges, payments, balances, reports, CSV export, dashboard | ⬜ |
-| 4 | QA, backups + restore test, monitoring, handover | ⬜ |
+| 1 | Foundation: auth, roles, vehicles, vehicle photos, PWA shell | ✅ Built and deployed |
+| 2a | Customers, rentals, no-double-booking, fleet status board | ✅ Built and tested |
+| 2b | Pickup / return inspections with photos | 🔶 Built, awaiting review and phone testing |
+| 3 | Income report per car, dashboard | ⬜ |
+| 4 | Backups + restore test, tests, staff management, handover | ⬜ |
 | 5 | Maintenance, expenses, reminders (optional, after launch) | ⬜ |
 
 ---
 
+## What this app is
+
+An **internal account book** for one rental business: about 30-50 cars and about 3 staff, used mostly on phones. It answers:
+
+1. Which cars are rented **right now**, and which are free.
+2. How many rentals have been booked **so far**.
+3. The **upcoming bookings** of each car.
+4. How much **each car earned from rent** over a past period.
+
+There is no customer-facing portal and no customer login.
+
 ## Decisions already made
 
-- One business, one team. No multi-tenancy, no public customer booking portal.
-- Hosting is **Cloudflare only** (Workers + D1 + R2) so the customer owns a single account. The customer's card is on file for R2; set a billing/usage alert.
-- Currency **INR**, time zone **Asia/Kolkata**. No tax or GST anywhere (no tax field, no tax setting, prices are plain amounts).
+- One business, one team. No multi-tenancy, no public booking.
+- Hosting is **Cloudflare only** (Workers + D1 + R2) so the customer owns a single account. Set a billing/usage alert.
+- Currency **INR**, time zone **Asia/Kolkata**. No tax or GST anywhere.
+- **Income = the agreed rent of each rental** (one total entered by staff). No payments, deposits, refunds or balances are tracked. No CSV export.
+- **Renter = name and phone, always entered.** Previously used names/phones are suggested while typing. Customers are created automatically when a rental is saved.
+- **Dates are date + time in IST.** The total is entered by staff; the app suggests *days × daily rate* (24-hour blocks, rounded up) and staff may override it.
+- Rental statuses: `booked → active (picked up) → returned`, and `cancelled` (from booked only).
+- Inspections (Phase 2b) have **photos**, kept for **1 year**, then the images are deleted automatically. The inspection record (odometer, fuel, notes) is kept forever.
+- **At least one photo is required** at pickup and return; an **admin may override with a written reason**. A rental becomes `active` only by completing its pickup inspection, and `returned` only by completing its return inspection. The admin override waives the **photo only**; odometer and fuel are always required.
 - Responsive PWA, installable; **no offline editing**. Nothing private is cached by the service worker.
 - Roles: `admin` and `staff` only.
-- Inspection photos are kept for **1 year**, then the image files are deleted automatically. The inspection record (odometer, fuel, damage notes) is kept forever; only the images expire.
-- Billing convention default: **24-hour periods from pickup** (rounded up), stored as a setting so it can change.
-- Photos are **required** at pickup and return; an **admin-authorised exception with a written reason** is allowed.
 - `robots.txt` / `noindex` is not security. Every page and API route checks the session itself.
 
 ## Phase 1 (done)
@@ -46,120 +61,75 @@ Mobile-first PWA for managing one car-rental business (up to ~50 vehicles, ~3 ac
 
 ---
 
+## Phase 2a (built, in review)
+
+- **Rentals:** vehicle, renter, start/end (IST), agreed total, notes, status; numbered `R-YYYY-NNNN`
+- **No double booking, enforced on the server:** one atomic SQL statement checks the overlap, allocates the rental number and inserts. Back-to-back rentals (end = next start) are allowed. A returned car stops blocking at its actual return time; a car picked up early blocks from the pickup time. Inactive vehicles can't be booked. Tested with 8 simultaneous bookings: exactly 1 wins.
+- **Fleet board** (`/fleet`): rented now (with overdue flag), available, pickup due, next booking per car, and counters for rented now / available / upcoming bookings / rentals so far
+- **Rentals list** with tabs (Out now, Upcoming, Past, Cancelled, All) and search by name, phone, registration, rental number
+- **Rental page:** details, mark picked up / returned / cancel, edit (booked: everything; active: end time, price, renter, notes)
+- **Record as** option when creating a rental, so past rentals can be back-entered as completed
+- **Customers:** list/search, edit, rental history. A vehicle with booked or active rentals can't be deactivated.
+
+## Phase 2b (built, in review)
+
+Inspections record the car's condition at handover, as evidence for later disputes.
+
+- **Pickup and return only happen through an inspection.** Completing the pickup inspection sets the rental `active`; completing the return inspection sets it `returned`. The inspection and the status change are one atomic database step, so a rental can never change status without its inspection. There is no separate "mark picked up" button.
+- **Flow on the phone:** Rental page → *Start pickup inspection* → odometer, fuel (0-8 eighths), damage notes, then photos → *Complete*. *Save draft* keeps work in progress.
+- **One photo area, no categories.** Staff add as many photos as they need (camera or gallery, several at once from the gallery), up to 24. Each photo shows its number; staff change the order with the ‹ › buttons and the numbers follow the order. Photos can be deleted or reordered only while the inspection is a draft.
+- **At least 1 photo** is required. Staff can't complete without one. An **admin** can complete without a photo by writing a reason, which is stored and shown on the rental.
+- **Photos** are resized on the phone to ≤ ~300 KB, uploaded one by one with progress and an error/retry message, and stored privately in R2 under `inspections/<rental>/<type>/`.
+- **Completed inspections are read-only.** Mistakes are corrected with dated **addendum notes** (who and when), never by editing.
+- **Adding photos later (admin only).** If an inspection was completed without a photo (admin override), an admin can add photos to it afterwards. Those photos are marked **Added later** (amber number, who and when), and the admin can delete one they added by mistake. An inspection completed *with* photos stays fully locked, and the evidence present at completion can never be removed.
+- **Return checks:** the return odometer can't be lower than at pickup; the vehicle's current odometer is raised to the latest reading (each inspection keeps its own reading, so history is intact).
+- **Pickup guard:** a car can't be picked up while it is still out on another rental.
+- **Side by side:** the rental page shows pickup and return together (odometer, fuel, notes, numbered photos) with *km driven* and the fuel difference.
+- **Photo viewer:** tapping any photo (inspection pages, the pickup/return comparison, the vehicle gallery) opens a full-screen in-app viewer: swipe or use the ‹ › arrows to flip through (wraps around), "3 / 7" counter, caption (with who/when for late photos), and ✕ / Esc / tap outside to close. Nothing opens in a new browser tab.
+- **Retention:** images expire after 1 year (see *Photo retention*); the record stays. An expired image is shown as a "Photo expired" placeholder.
+- Rentals entered as history ("Record as" already out / completed) have no inspection; the rental page says so.
+
 ## Roadmap
 
-Build each phase on its own branch, review every diff, run the checks, then merge. Never edit an applied migration; add a new numbered file.
+Review every diff and run the checks before merging. Never edit an applied migration; add a new numbered file.
 
-### Phase 2: customers, bookings, inspections
-
-**Customers** (minimal data only)
-- [ ] `customers` table: full name, phone, optional email, optional notes, timestamps
-- [ ] List, search (name / phone), add, edit; rental history on the customer page
-- [ ] No licence or ID document storage unless the business asks, and then only after a privacy/retention decision
-
-**Bookings and availability**
-- [ ] `rentals` table: human-readable rental number, vehicle, customer, `start_at`, `expected_return_at`, `actual_return_at`, agreed daily rate snapshot (paise), estimated total, final total, status, created_by, timestamps
-- [ ] Booking form (phone-friendly) and a list + calendar view per vehicle
-- [ ] **Overlap prevention on the server**: reject a confirmed/active rental that overlaps another confirmed/active rental on the same vehicle. D1 has no exclusion constraint, so do the check and insert in **one atomic statement** (`INSERT ... SELECT ... WHERE NOT EXISTS (overlap)`), and check the affected-row count. Add a test that fires concurrent requests for the same car and dates
-- [ ] Cancelled and draft rentals never block availability; vehicles in maintenance or inactive cannot be booked
-- [ ] Vehicle `status` is derived from rentals plus manual maintenance/inactive flags; do not trust a stored value alone
-
-**Rental lifecycle** (explicit actions, each validated server-side)
-`draft → confirmed → active (pickup done) → returned (return inspection done) → closed (final charges reviewed)`, and `cancelled` as a separate transition from draft/confirmed.
-- [ ] Pickup inspection must be complete before `active`; return inspection before `returned` (admin exception with reason)
-- [ ] Physical return can be recorded even when a balance is outstanding
-- [ ] Closing requires final charge review; edits to closed rentals need admin and are audited
-- [ ] Rental number format agreed up front (for example `R-2026-0001`), unique
-
-**Inspections**
-- [ ] `inspections` table: rental, vehicle, type (`pickup` / `return`), `inspected_at`, odometer km, fuel level (fixed scale, for example 0–8 eighths), interior and exterior checklist, damage notes, staff user, optional customer acknowledgement time, `completed_at`
-- [ ] `inspection_photos` table: inspection, R2 key, category (front, rear, left, right, interior, dashboard/odometer, damage), caption, captured_at, uploaded_by
-- [ ] Multiple photos from the phone camera, client-side resize to ≤ ~300 KB, per-file upload progress, failure + retry
-- [ ] Pickup and return shown **side by side**
-- [ ] Completed inspections are immutable; a correction is a new audited amendment, never an overwrite
-- [ ] Updating the vehicle's current odometer on return must not overwrite historical readings
-- [ ] Store inspection photos under an `inspections/` key prefix (see Photo retention below) and show a clear "photo expired" placeholder when an image is gone
-
-### Phase 3: money and reports
-
-**Charges and payments**
-- [ ] `rental_charges`: base rent (from the rate snapshot), extra days, fuel, cleaning, damage, discount, other adjustment (all integer paise, signed amounts allowed only for discounts/adjustments)
-- [ ] `payments`: type (`payment` / `refund` / `deposit` / `deposit_return`), positive amount in paise, method (cash, bank transfer/UPI, card, other), reference, `paid_at`, `recorded_by`
-- [ ] Multiple payments per rental; deposits tracked separately and **not counted as earned revenue**
-- [ ] Never delete financial rows: corrections are **void / reversal** records with a reason
-- [ ] Outstanding balance = final amount due − (payments − refunds) − credits, shown on the rental page
-- [ ] Billing policy implemented as a setting (24-hour blocks by default; calendar-day as the alternative)
-- [ ] Format INR in the Indian grouping (₹1,25,000.00) in one shared helper
-
-**Reports** (aggregated in SQL, not in the browser)
-- [ ] Filters: date range (today, week, month, year, financial year Apr–Mar, custom), one vehicle or all, make/model, rental status, payment status; group by vehicle, month or rental
-- [ ] Separate, clearly labelled views: **Revenue** (by rental period, or by finalised/closed date) and **Cash collected** (by payment date)
-- [ ] Outputs: gross rental revenue, collected, outstanding, discounts, refunds, rental count, billable days, average per rental and per day, vehicle utilisation (rental days ÷ available fleet days, with the definition written on the page)
-- [ ] Per-vehicle lifetime revenue
-- [ ] Drill-down from any total to the source rentals and payments
-- [ ] CSV export of the filtered result
-- [ ] Reconciliation test: report totals equal the sum of the underlying rows for a seeded data set
-
-**Dashboard**
-- [ ] Fleet counts (available, reserved, rented, maintenance), upcoming returns, overdue rentals, period revenue, collected, outstanding
+### Phase 3: income report and dashboard
+- [ ] **Rent per car for a chosen period** (today, week, month, year, financial year Apr-Mar, custom), with totals; screen only, no CSV
+- [ ] Per vehicle: rental count, booked days, total rent, average per rental; fleet total
+- [ ] Choose and state the date basis on the page (by rental start date is the default)
+- [ ] Per-car lifetime rent; drill-down from any total to the rentals behind it
+- [ ] Utilisation (rental days ÷ available fleet days, definition written on the page)
+- [ ] Reconciliation test: report totals equal the sum of the underlying rentals
+- [ ] Dashboard on the fleet page: period rent, upcoming returns, overdue
 
 ### Phase 4: quality, safety, handover
-
-**Security and audit**
-- [ ] `audit_logs`: who, when, entity, action, before/after (no unnecessary personal data in logs) for vehicles, rentals, inspections, payments, refunds, photos and user/role changes
-- [ ] Admin-only audit log viewer
-- [ ] Re-check that every page and API route enforces the session and role (no middleware gate exists)
-- [ ] Extend the server-side upload checks (JPEG signature, size, count; already in place for vehicle photos) to inspection photos
+- [ ] `audit_logs` (who, when, entity, action, before/after) for vehicles, rentals, inspections and user changes, with an admin-only viewer
+- [ ] Admin screen to create/disable staff users and reset passwords (replaces the script)
 - [ ] Rate limiting on uploads (login is already rate-limited)
-- [ ] Admin screen to create/disable staff users and reset passwords (replace the script for day-to-day use)
-
-**Settings**
-- [ ] `app_settings`: business name, currency (INR), time zone, billing policy, default rates, rental-number prefix
-
-**Backups and recovery**
-- [ ] Scheduled export of D1 to R2 under a `backups/` prefix (Cron Trigger); keep a rolling set
-- [ ] Use D1 Time Travel (point-in-time restore) as the first line of recovery
-- [ ] **Do a full restore test** into a fresh D1 database and write down the exact steps
-- [ ] Make sure the backup prefix is excluded from the 365-day delete rule
-
-**Testing**
-- [ ] Concurrent booking test (no double booking)
-- [ ] Date/time edge cases: IST vs UTC boundaries, midnight returns, 24-hour rounding
-- [ ] Money edge cases: paise rounding, refunds larger than payments rejected, voids
-- [ ] Role tests: staff cannot reach admin actions
-- [ ] Failed/retried photo uploads; slow mobile networks
-- [ ] Manual pass on a real phone, a tablet and desktop
-
-**Monitoring and handover**
-- [ ] Error visibility (Workers logs / observability) and a short "what to do when X breaks" guide
+- [ ] Scheduled D1 export to R2 under `backups/` (Cron Trigger); D1 Time Travel as first recovery step
+- [ ] **Full restore test** into a fresh D1 database, with the steps written down
+- [ ] Tests: concurrent booking, IST/UTC boundaries, role checks, failed/retried uploads, slow networks
+- [ ] Manual pass on a real phone, a tablet and a desktop
 - [ ] Import the real fleet data and verify it
-- [ ] Hand ownership to the customer: they hold the Cloudflare account, GitHub repo and domain; developer access is separate and revocable; rotate API tokens and secrets at handover
-- [ ] Written operating guide: daily use, adding users, restoring a backup, account recovery
-- [ ] Agree the post-launch bug-fix period and any paid support in writing
+- [ ] Handover: customer owns the Cloudflare account, GitHub repo and domain; rotate tokens and secrets; written operating guide
 
 ### Phase 5: optional, after launch
-- [ ] Maintenance and service records (date or odometer due), repair costs, downtime
-- [ ] Registration and insurance expiry reminders
-- [ ] Expenses per vehicle and operating contribution in reports
-- [ ] Printable PDF reports
+- [ ] Maintenance records, expiry reminders, expenses per vehicle, printable PDF reports
 
 ---
 
-## Logical data model
+## Data model
 
-Existing (Phase 1): auth tables (Better Auth), `vehicles`, `vehicle_photos`.
-Planned: `customers`, `rentals`, `inspections`, `inspection_photos`, `rental_charges`, `payments`, `audit_logs`, `app_settings`; later `maintenance_records`, `expenses`.
+Existing: auth tables (Better Auth), `vehicles`, `vehicle_photos`, `customers`, `rentals`, `inspections`, `inspection_photos`, `inspection_addenda`.
+Planned: `audit_logs`.
 
-Rules for every table: integer paise for money, UTC ISO timestamps, foreign keys on, unique constraints (registration number, rental number), `CHECK` constraints on amounts and statuses, and indexes for the common searches and report filters (vehicle + dates, status, `paid_at`).
+Rules for every table: integer paise for money, UTC ISO timestamps, foreign keys on, `CHECK` constraints on amounts and statuses, unique constraints (registration number, rental number, customer phone + name), and indexes for the common searches.
 
-## Reporting definitions (write these on the report pages too)
+## Reporting definitions
 
-- **Gross rental revenue**: final rental charges (base + extras − discounts) for rentals in the period. Not the same as cash.
-- **Collected**: payments minus refunds, by payment date.
-- **Outstanding**: final amount due − net payments, for non-cancelled rentals.
-- **Deposits**: held separately; never revenue unless explicitly applied to charges.
-- **Utilisation**: billable rental days ÷ (active vehicles × days in period).
-- Every report states which date basis it uses (rental period, closed date, or payment date).
+- **Rent earned** = the agreed total of a rental. Cancelled rentals count as zero.
+- **Rentals so far** = booked + active + returned (cancelled bookings excluded).
+- Every report states which date basis it uses.
 
 ## Photo retention (important)
 
@@ -171,7 +141,14 @@ The 365-day R2 lifecycle rule deletes any object matching its prefix. Scope it a
 | `vehicles/` | vehicle gallery photos | ❌ No |
 | `backups/` | database exports | ❌ No (manage separately) |
 
-Phase 1 already stores vehicle photos under `vehicles/<vehicle_id>/`, so a rule scoped to `inspections/` will not touch them. When an expired image is requested, the photo route should return a friendly "expired" response, not an error.
+Vehicle photos are stored under `vehicles/<vehicle_id>/` and inspection photos under `inspections/<rental_id>/…`, so a rule scoped to `inspections/` never touches vehicle photos. When an expired image is requested, the photo route returns a "Photo expired" placeholder instead of an error.
+
+Create the rule once (changes the live bucket, so do it deliberately):
+
+```bash
+npx wrangler r2 bucket lifecycle add car-rental-photos expire-inspections inspections/ --expire-days 365
+npx wrangler r2 bucket lifecycle list car-rental-photos   # verify the prefix is inspections/
+```
 
 ---
 
@@ -198,6 +175,10 @@ npm run dev                             # http://localhost:3000
 
 Arguments: `<username> "<name>" <admin|staff> [email]`. The username is 3-30 characters (letters, digits, `_`, `.`) and is what people type to sign in; an email is optional and defaults to a placeholder `<username>@car-rental.local`. Passwords must be at least 10 characters. Create staff users the same way with role `staff`.
 
+**Demo data (local only):** `node scripts/seed-demo.mjs > demo.sql && npx wrangler d1 execute car-rental --local --file demo.sql && rm demo.sql` adds 30 vehicles, 28 customers and about 130 rentals (out now, overdue, upcoming, past, cancelled) with inspection records. It only manages its own `demo-` rows, so it is safe to re-run and leaves your own entries alone. Never run it with `--remote`. **Stop `npm run dev` before running any `wrangler d1 ... --local` command** (migrations, seed, creating users); a running dev server keeps the local database open and fails with "Failed to get session commit token" if it changes underneath it.
+
+**Demo photos (local only):** after the demo data, with `npm run dev` stopped, run `node scripts/seed-demo-photos.mjs`. It adds placeholder images (`scripts/demo-photos/`, labelled "DEMO n") to most demo inspections (1-8 each), a few "added later" photos, and 1-5 gallery photos to most demo vehicles, written straight into the local database and R2. Re-running replaces its own photos. Use `--persist-to <dir>` to target another local state folder.
+
 ## Deploying to Cloudflare
 
 1. `npx wrangler login`
@@ -219,7 +200,7 @@ Arguments: `<username> "<name>" <admin|staff> [email]`. The username is 3-30 cha
    npx wrangler d1 execute car-rental --remote --file admin.sql && rm admin.sql
    ```
 5. `npm run deploy`
-6. In the Cloudflare dashboard, add the prefix-scoped lifecycle rule for `inspections/` (see Photo retention) and a billing/usage alert.
+6. Add the prefix-scoped 365-day lifecycle rule for `inspections/` (command under *Photo retention*) and a billing/usage alert in the Cloudflare dashboard.
 
 ## Database migrations
 
@@ -229,9 +210,9 @@ and its schema changes, check `npx @better-auth/cli generate` against `migration
 
 ## Project layout
 
-- `src/app` – pages (`/login`, `/vehicles`, `/vehicles/new`, `/vehicles/[id]`, `/account`), server actions, API routes (`/api/auth/*`, `/api/vehicles/[id]/photos`, `/api/photos/[id]`)
-- `src/components` – bottom nav, vehicle form, photo manager, install button
-- `src/lib` – auth, session guards, vehicle queries + validation, money helpers, client-side image compression
+- `src/app` – pages (`/fleet`, `/rentals`, `/rentals/new`, `/rentals/[id]`, `/rentals/[id]/inspect/[type]`, `/customers`, `/customers/[id]`, `/vehicles`, `/vehicles/new`, `/vehicles/[id]`, `/account`, `/login`), server actions, API routes (`/api/auth/*`, `/api/customers`, `/api/vehicles/[id]/photos`, `/api/photos/[id]`, `/api/inspections/[id]/photos`, `/api/inspection-photos/[id]`)
+- `src/components` – bottom nav, vehicle / rental / customer forms, photo manager, install button
+- `src/lib` – auth, session guards, vehicle, customer and rental queries + validation, money and IST time helpers, client-side image compression
 - `migrations/` – D1 schema · `scripts/create-user.mjs` – prints SQL to create a user
 
 ## Notes
@@ -239,4 +220,5 @@ and its schema changes, check `npx @better-auth/cli generate` against `migration
 - After changing bindings in `wrangler.jsonc`, run `npm run cf-typegen`.
 - Every page and API route checks the session itself (there is no middleware gate). Add the same check to any new route.
 - Login attempts are rate-limited (stored in D1).
+- **Back arrows return to the exact previous screen**, including its filter and search. Every list/detail link carries the current address as `?back=` (`src/lib/nav.ts`: `selfUrl`, `withBack`, `safeBack`), so the chain survives several levels. New links to a detail screen must pass `withBack(href, here)`; `safeBack` only accepts in-app paths.
 - Do not commit `.dev.vars`, API tokens, or `admin.sql`.

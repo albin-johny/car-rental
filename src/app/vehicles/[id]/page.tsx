@@ -1,7 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/session";
+import { ScreenHeader } from "@/components/screen-header";
+import { safeBack, selfUrl, withBack } from "@/lib/nav";
 import { getVehicle, listPhotos } from "@/lib/vehicles";
+import { listRentals } from "@/lib/rentals";
+import { RentalCard } from "@/components/rental-card";
 import { MAX_PHOTOS } from "@/lib/vehicle-constants";
 import { paiseToInput } from "@/lib/money";
 import { formatIST } from "@/lib/time";
@@ -12,12 +16,15 @@ import { updateVehicleAction } from "../actions";
 
 export const metadata = { title: "Edit vehicle" };
 
-export default async function VehiclePage({ params }: { params: Promise<{ id: string }> }) {
+export default async function VehiclePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ back?: string }> }) {
   const user = await requireUser();
   const { id } = await params;
+  const rawBack = (await searchParams).back;
+  const back = safeBack(rawBack, "/vehicles");
+  const here = selfUrl(`/vehicles/${id}`, { back: rawBack });
   const v = await getVehicle(id);
   if (!v) notFound();
-  const photos = await listPhotos(id);
+  const [photos, rentals] = await Promise.all([listPhotos(id), listRentals({ vehicleId: id, tab: "all", limit: 5 })]);
 
   const initial: Record<string, string> = {
     registration_number: v.registration_number,
@@ -36,13 +43,21 @@ export default async function VehiclePage({ params }: { params: Promise<{ id: st
 
   return (
     <div className="space-y-6">
-      <Link href="/vehicles" className="text-sm text-blue-700">← Vehicles</Link>
       <div>
-        <h1 className="text-xl font-semibold">{v.make} {v.model}</h1>
+        <ScreenHeader title={`${v.make} ${v.model}`} back={back} />
+        <p className="font-mono text-sm text-slate-600">{v.registration_number}</p>
         <p className="text-sm text-slate-500">
           {v.is_active ? "Active" : "Inactive"} · updated {formatIST(v.updated_at)} IST
         </p>
       </div>
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold">Rentals</h2>
+          <Link href={withBack(`/rentals/new?vehicle=${id}`, here)} className="btn btn-secondary min-h-10 py-2">Book this car</Link>
+        </div>
+        {rentals.length === 0 ? <p className="text-sm text-slate-500">No rentals yet.</p> : <ul className="space-y-3">{rentals.map((r) => <li key={r.id}><RentalCard r={r} from={here} /></li>)}</ul>}
+        {rentals.length > 0 && <Link href={`/rentals?vehicle=${id}&tab=all`} className="block text-center text-sm text-blue-700">All rentals for this car →</Link>}
+      </section>
       <PhotoManager vehicleId={id} photos={photos.map((p) => ({ id: p.id }))} max={MAX_PHOTOS} />
       <VehicleForm action={updateVehicleAction.bind(null, id)} initial={initial} submitLabel="Save changes" />
       {user.role === "admin" && <ActiveToggle id={id} active={!!v.is_active} />}

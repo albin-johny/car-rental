@@ -4,7 +4,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "Car Rental",
     short_name: "Car Rental",
-    start_url: "/vehicles",
+    start_url: "/fleet",
     scope: "/",
     display: "standalone",
     background_color: "#f8fafc",

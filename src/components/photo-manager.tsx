@@ -2,12 +2,14 @@
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { compressImage } from "@/lib/compress-image";
+import { PhotoViewer } from "./photo-viewer";
 
 export function PhotoManager({ vehicleId, photos, max }: { vehicleId: string; photos: { id: string }[]; max: number }) {
   const router = useRouter();
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [viewing, setViewing] = useState<number | null>(null);
 
   async function onPick(e: React.ChangeEvent<HTMLInputElement>) {
     const files = [...(e.target.files ?? [])];
@@ -44,10 +46,12 @@ export function PhotoManager({ vehicleId, photos, max }: { vehicleId: string; ph
     <section className="space-y-3">
       <h2 className="font-semibold">Photos ({photos.length}/{max})</h2>
       <div className="grid grid-cols-2 gap-2">
-        {photos.map((p) => (
+        {photos.map((p, i) => (
           <div key={p.id} className="relative overflow-hidden rounded-lg bg-slate-200">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={`/api/photos/${p.id}`} alt="Vehicle" className="aspect-[4/3] w-full object-cover" loading="lazy" />
+            <button type="button" onClick={() => setViewing(i)} aria-label={`Open photo ${i + 1} of ${photos.length}`} className="block w-full">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={`/api/photos/${p.id}`} alt={`Vehicle photo ${i + 1}`} className="aspect-[4/3] w-full object-cover" loading="lazy" />
+            </button>
             <button
               onClick={() => remove(p.id)}
               aria-label="Delete photo"
@@ -63,6 +67,14 @@ export function PhotoManager({ vehicleId, photos, max }: { vehicleId: string; ph
         {busy ? "Resizing & uploading…" : "Add photos"}
       </button>
       {error && <p className="err" role="alert">{error}</p>}
+      {viewing !== null && (
+        <PhotoViewer
+          items={photos.map((p, i) => ({ src: `/api/photos/${p.id}`, alt: `Vehicle photo ${i + 1}`, caption: `Photo ${i + 1} of ${photos.length}` }))}
+          index={Math.min(viewing, photos.length - 1)}
+          onIndex={setViewing}
+          onClose={() => setViewing(null)}
+        />
+      )}
     </section>
   );
 }

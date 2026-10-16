@@ -10,7 +10,10 @@ export function ActiveToggle({ id, active }: { id: string; active: boolean }) {
       disabled={pending}
       onClick={() => {
         if (active && !confirm("Deactivate this vehicle? It will be hidden from the default list.")) return;
-        start(() => setActiveAction(id, !active));
+        start(async () => {
+          const r = await setActiveAction(id, !active);
+          if (r.error) alert(r.error);
+        });
       }}
     >
       {active ? "Deactivate vehicle" : "Reactivate vehicle"}

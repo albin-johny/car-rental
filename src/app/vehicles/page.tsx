@@ -2,6 +2,8 @@ import Link from "next/link";
 import { requireUser } from "@/lib/session";
 import { listVehicles } from "@/lib/vehicles";
 import { formatINR } from "@/lib/money";
+import { selfUrl, withBack } from "@/lib/nav";
+import { ChipNav } from "@/components/chip-nav";
 
 export const metadata = { title: "Vehicles" };
 
@@ -16,33 +18,28 @@ export default async function VehiclesPage({ searchParams }: { searchParams: Pro
   const sp = await searchParams;
   const status = sp.status === "inactive" || sp.status === "all" ? sp.status : "active";
   const vehicles = await listVehicles({ q: sp.q, status });
+  const here = selfUrl("/vehicles", { q: sp.q, status });
   const href = (s: string) => `/vehicles?${new URLSearchParams({ ...(sp.q ? { q: sp.q } : {}), status: s })}`;
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Vehicles</h1>
-        <span className="text-sm text-slate-500">{vehicles.length} shown</span>
+        <Link href={withBack("/vehicles/new", here)} className="btn">+ Add</Link>
       </div>
       <form className="flex gap-2" role="search">
         <input type="hidden" name="status" value={status} />
-        <input name="q" defaultValue={sp.q ?? ""} type="search" placeholder="Search reg. no., make, model" className="input" aria-label="Search vehicles" />
+        <input name="q" defaultValue={sp.q ?? ""} type="search" placeholder="Search car or reg. no." className="input" aria-label="Search vehicles" />
         <button className="btn btn-secondary">Search</button>
       </form>
-      <nav className="flex gap-2 text-sm">
-        {TABS.map(([s, label]) => (
-          <Link key={s} href={href(s)} className={`rounded-full px-4 py-2 ${status === s ? "bg-blue-600 text-white" : "bg-white ring-1 ring-slate-300"}`}>
-            {label}
-          </Link>
-        ))}
-      </nav>
+      <ChipNav label="Filter vehicles" chips={TABS.map(([s, label]) => ({ href: href(s), label, active: status === s }))} />
       {vehicles.length === 0 ? (
         <p className="py-8 text-center text-slate-500">No vehicles found.</p>
       ) : (
         <ul className="space-y-3">
           {vehicles.map((v) => (
             <li key={v.id}>
-              <Link href={`/vehicles/${v.id}`} className={`flex gap-3 rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200 ${v.is_active ? "" : "opacity-60"}`}>
+              <Link href={withBack(`/vehicles/${v.id}`, here)} className={`flex gap-3 rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200 ${v.is_active ? "" : "opacity-60"}`}>
                 <div className="h-20 w-24 shrink-0 overflow-hidden rounded-lg bg-slate-200">
                   {v.cover_photo_id && (
                     // eslint-disable-next-line @next/next/no-img-element

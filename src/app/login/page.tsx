@@ -24,7 +24,7 @@ export default function LoginPage() {
       setBusy(false);
       return;
     }
-    router.replace("/vehicles");
+    router.replace("/fleet");
     router.refresh();
   }
 
