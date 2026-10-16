@@ -1,5 +1,6 @@
 import { betterAuth } from "better-auth";
 import { nextCookies } from "better-auth/next-js";
+import { username } from "better-auth/plugins";
 import { env } from "./env";
 
 // Built per request: D1/R2 bindings only exist inside a request on Workers.
@@ -21,6 +22,6 @@ export function getAuth() {
     },
     rateLimit: { enabled: true, storage: "database" },
     session: { expiresIn: 60 * 60 * 24 * 30, cookieCache: { enabled: false } },
-    plugins: [nextCookies()],
+    plugins: [username({ minUsernameLength: 3 }), nextCookies()],
   });
 }

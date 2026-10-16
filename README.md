@@ -9,7 +9,7 @@ Mobile-first PWA for managing one car-rental business (up to ~50 vehicles, ~3 ac
 
 | Phase | Scope | Status |
 | --- | --- | --- |
-| 1 | Foundation: auth, roles, vehicles, vehicle photos, PWA shell | ✅ Done |
+| 1 | Foundation: auth, roles, vehicles, vehicle photos, PWA shell | ✅ Built and deployed; edit, deactivate and photo upload still to be verified on a phone |
 | 2 | Customers, bookings, availability, rental lifecycle, pickup/return inspections | ⏳ Next |
 | 3 | Charges, payments, balances, reports, CSV export, dashboard | ⬜ |
 | 4 | QA, backups + restore test, monitoring, handover | ⬜ |
@@ -31,12 +31,13 @@ Mobile-first PWA for managing one car-rental business (up to ~50 vehicles, ~3 ac
 
 ## Phase 1 (done)
 
-- Sign in (no public sign-up; users are created by an admin script)
+- Sign in with a **username or email** (no public sign-up; users are created by an admin script)
 - Vehicle list with search (registration no., make, model) and Active / Inactive / All filter
 - Add and edit vehicles
 - Deactivate / reactivate a vehicle (**admin only**; vehicles are never hard-deleted)
 - Photos: up to 8 per vehicle, resized on the phone to ≤ ~300 KB JPEG, stored in a private R2 bucket and served only through an authenticated route
 - Installable PWA (manifest + minimal service worker; nothing private is cached)
+- Mobile app layout: bottom tab bar (Vehicles, Add, Account), Account tab with user details, sign out and an **Add to Home Screen** button (native prompt on Android/Chrome, instructions on iPhone)
 
 | Action | staff | admin |
 | --- | :-: | :-: |
@@ -108,8 +109,8 @@ Build each phase on its own branch, review every diff, run the checks, then merg
 - [ ] `audit_logs`: who, when, entity, action, before/after (no unnecessary personal data in logs) for vehicles, rentals, inspections, payments, refunds, photos and user/role changes
 - [ ] Admin-only audit log viewer
 - [ ] Re-check that every page and API route enforces the session and role (no middleware gate exists)
-- [ ] Validate upload type and size on the server, not only in the browser
-- [ ] Rate limiting on login (already in place) and on uploads
+- [ ] Extend the server-side upload checks (JPEG signature, size, count; already in place for vehicle photos) to inspection photos
+- [ ] Rate limiting on uploads (login is already rate-limited)
 - [ ] Admin screen to create/disable staff users and reset passwords (replace the script for day-to-day use)
 
 **Settings**
@@ -187,7 +188,7 @@ npm install
 ```bash
 cp .dev.vars.example .dev.vars          # then set BETTER_AUTH_SECRET (openssl rand -base64 32)
 npm run db:migrate:local                # creates the local D1 schema
-USER_PASSWORD='choose-a-password' node scripts/create-user.mjs you@example.com "Your Name" admin > admin.sql
+USER_PASSWORD='choose-a-password' node scripts/create-user.mjs admin "Your Name" admin > admin.sql
 npx wrangler d1 execute car-rental --local --file admin.sql && rm admin.sql
 npm run dev                             # http://localhost:3000
 ```
@@ -195,7 +196,7 @@ npm run dev                             # http://localhost:3000
 `next dev` uses local simulated D1/R2 (stored in `.wrangler/`). To test in the real Workers runtime: `npm run preview`
 (serves on port 8787; set `BETTER_AUTH_URL` in `.dev.vars` to match, e.g. `http://localhost:8787`).
 
-Passwords must be at least 10 characters. Create staff users the same way with role `staff`.
+Arguments: `<username> "<name>" <admin|staff> [email]`. The username is 3-30 characters (letters, digits, `_`, `.`) and is what people type to sign in; an email is optional and defaults to a placeholder `<username>@car-rental.local`. Passwords must be at least 10 characters. Create staff users the same way with role `staff`.
 
 ## Deploying to Cloudflare
 
@@ -209,12 +210,12 @@ Passwords must be at least 10 characters. Create staff users the same way with r
 3. Secrets / vars:
    ```bash
    openssl rand -base64 32 | npx wrangler secret put BETTER_AUTH_SECRET
-   echo 'https://YOUR-APP.workers.dev' | npx wrangler secret put BETTER_AUTH_URL   # your final public URL
+   echo 'https://<worker>.<your-subdomain>.workers.dev' | npx wrangler secret put BETTER_AUTH_URL   # exact public URL, no trailing slash
    ```
 4. Migrate and create the first admin (remote):
    ```bash
    npm run db:migrate:remote
-   USER_PASSWORD='...' node scripts/create-user.mjs you@example.com "Your Name" admin > admin.sql
+   USER_PASSWORD='...' node scripts/create-user.mjs admin "Your Name" admin > admin.sql
    npx wrangler d1 execute car-rental --remote --file admin.sql && rm admin.sql
    ```
 5. `npm run deploy`
@@ -228,7 +229,8 @@ and its schema changes, check `npx @better-auth/cli generate` against `migration
 
 ## Project layout
 
-- `src/app` – pages (`/login`, `/vehicles`, `/vehicles/new`, `/vehicles/[id]`), server actions, API routes (`/api/auth/*`, `/api/vehicles/[id]/photos`, `/api/photos/[id]`)
+- `src/app` – pages (`/login`, `/vehicles`, `/vehicles/new`, `/vehicles/[id]`, `/account`), server actions, API routes (`/api/auth/*`, `/api/vehicles/[id]/photos`, `/api/photos/[id]`)
+- `src/components` – bottom nav, vehicle form, photo manager, install button
 - `src/lib` – auth, session guards, vehicle queries + validation, money helpers, client-side image compression
 - `migrations/` – D1 schema · `scripts/create-user.mjs` – prints SQL to create a user
 

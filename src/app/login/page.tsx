@@ -13,10 +13,12 @@ export default function LoginPage() {
     setBusy(true);
     setError("");
     const f = new FormData(e.currentTarget);
-    const { error } = await authClient.signIn.email({
-      email: String(f.get("email")),
-      password: String(f.get("password")),
-    });
+    const id = String(f.get("login")).trim();
+    const password = String(f.get("password"));
+    // Either a username ("admin") or an email address works.
+    const { error } = id.includes("@")
+      ? await authClient.signIn.email({ email: id, password })
+      : await authClient.signIn.username({ username: id, password });
     if (error) {
       setError("Invalid email or password");
       setBusy(false);
@@ -30,8 +32,8 @@ export default function LoginPage() {
     <form onSubmit={onSubmit} className="mx-auto mt-16 max-w-sm space-y-4">
       <h1 className="text-2xl font-semibold">Sign in</h1>
       <div>
-        <label className="label" htmlFor="email">Email</label>
-        <input id="email" name="email" type="email" autoComplete="username" required className="input" />
+        <label className="label" htmlFor="login">Username or email</label>
+        <input id="login" name="login" type="text" autoComplete="username" autoCapitalize="none" autoCorrect="off" required className="input" />
       </div>
       <div>
         <label className="label" htmlFor="password">Password</label>
