@@ -1,0 +1,27 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "car-rental",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },
+  "observability": { "enabled": true },
+  "vars": {
+    "TZ_NAME": "Asia/Kolkata"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "car-rental",
+      "database_id": "5c31f2c5-fca3-42a7-ae00-32a5ddf8394b",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      // Private: no public access / custom domain is ever attached.
+      "binding": "PHOTOS",
+      "bucket_name": "car-rental-photos"
+    }
+  ]
+}
