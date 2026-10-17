@@ -196,6 +196,28 @@ export async function getRental(id: string) {
 const SELECT_LIST = `SELECT r.*, v.registration_number, v.make, v.model, c.name AS customer_name, c.phone AS customer_phone
   FROM rentals r JOIN vehicles v ON v.id = r.vehicle_id JOIN customers c ON c.id = r.customer_id`;
 
+/** Rentals that went out (active or returned) and started inside [start, end). Same set the income report sums. */
+export async function listWentOutBetween(start: string, end: string, vehicleId?: string) {
+  const { results } = await env()
+    .DB.prepare(
+      `${SELECT_LIST} WHERE r.status IN ('active','returned') AND r.start_at >= ?1 AND r.start_at < ?2 ${vehicleId ? "AND r.vehicle_id = ?3" : ""}
+       ORDER BY r.start_at DESC`,
+    )
+    .bind(...(vehicleId ? [start, end, vehicleId] : [start, end]))
+    .all<RentalListItem>();
+  return results;
+}
+
+/** Active rentals due back within `hours` from now, including overdue ones (most overdue first). */
+export async function listDueBack(nowMs: number, hours = 24, limit = 8) {
+  const cutoff = new Date(nowMs + hours * 3_600_000).toISOString();
+  const { results } = await env()
+    .DB.prepare(`${SELECT_LIST} WHERE r.status = 'active' AND r.end_at <= ?1 ORDER BY r.end_at ASC LIMIT ?2`)
+    .bind(cutoff, limit)
+    .all<RentalListItem>();
+  return results;
+}
+
 export async function getRentalDetail(id: string) {
   return env().DB.prepare(`${SELECT_LIST} WHERE r.id = ?`).bind(id).first<RentalListItem>();
 }

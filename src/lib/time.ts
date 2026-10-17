@@ -24,3 +24,12 @@ export function isoToIstInput(iso: string): string {
 export function istYear(d = new Date()): number {
   return new Date(d.getTime() + IST_OFFSET_MS).getUTCFullYear();
 }
+
+/** "in 5h", "in 25m", "3h overdue", "2d overdue" relative to now. */
+export function relativeDue(iso: string, now = Date.now()): { text: string; overdue: boolean } {
+  const diff = new Date(iso).getTime() - now;
+  const abs = Math.abs(diff);
+  const m = Math.round(abs / 60_000);
+  const text = m < 60 ? `${m}m` : m < 60 * 24 ? `${Math.round(m / 60)}h` : `${Math.round(m / 1440)}d`;
+  return diff < 0 ? { text: `${text} overdue`, overdue: true } : { text: `in ${text}`, overdue: false };
+}

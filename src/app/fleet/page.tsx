@@ -1,7 +1,10 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/session";
-import { fleetBoard, rentalStats, type FleetCard } from "@/lib/rentals";
-import { formatIST } from "@/lib/time";
+import { fleetBoard, listDueBack, rentalStats, type FleetCard } from "@/lib/rentals";
+import { totalRent } from "@/lib/reports";
+import { resolvePeriod } from "@/lib/periods";
+import { formatINRShort } from "@/lib/money";
+import { formatIST, relativeDue } from "@/lib/time";
 import { selfUrl, withBack } from "@/lib/nav";
 import { ChipNav } from "@/components/chip-nav";
 
@@ -20,7 +23,10 @@ export default async function FleetPage({ searchParams }: { searchParams: Promis
   await requireUser();
   const sp = await searchParams;
   const show = sp.show === "rented" || sp.show === "available" ? sp.show : "all";
-  const [cards, stats] = await Promise.all([fleetBoard(), rentalStats()]);
+  const now = Date.now();
+  const month = resolvePeriod({ p: "month" }, now);
+  const [cards, stats, monthRent, dueBack] = await Promise.all([fleetBoard(), rentalStats(), totalRent(month), listDueBack(now, 24, 6)]);
+  const overdue = cards.filter((c) => c.overdue).length;
   const rented = cards.filter((c) => c.state === "rented").length;
   const here = selfUrl("/fleet", { show, q: sp.q });
   const q = sp.q?.trim().toLowerCase() ?? "";
@@ -38,8 +44,8 @@ export default async function FleetPage({ searchParams }: { searchParams: Promis
     .filter((c) => (show === "rented" ? c.state === "rented" : show === "available" ? c.state !== "rented" : true))
     .filter(matches);
 
-  const tile = (label: string, value: number, href?: string) => {
-    const body = (<><p className="text-2xl font-bold">{value}</p><p className="text-xs text-slate-500">{label}</p></>);
+  const tile = (label: string, value: number | string, href?: string, danger = false) => {
+    const body = (<><p className={`truncate text-2xl font-bold ${danger ? "text-red-600" : ""}`}>{value}</p><p className="text-xs text-slate-500">{label}</p></>);
     const cls = "rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200";
     return href ? <Link href={href} className={cls}>{body}</Link> : <div className={cls}>{body}</div>;
   };
@@ -52,7 +58,30 @@ export default async function FleetPage({ searchParams }: { searchParams: Promis
         {tile("Available", cards.length - rented)}
         {tile("Upcoming bookings", stats.booked, "/rentals?tab=upcoming")}
         {tile("Rentals so far", stats.totalEver, "/rentals?tab=all")}
+        {tile(`Rent in ${month.label}`, formatINRShort(monthRent), "/reports?p=month")}
+        {tile("Overdue", overdue, overdue ? "/fleet?show=rented" : undefined, overdue > 0)}
       </div>
+      {dueBack.length > 0 && (
+        <section className="space-y-2">
+          <h2 className="font-semibold">Due back soon</h2>
+          <ul className="divide-y divide-slate-100 rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
+            {dueBack.map((r) => {
+              const due = relativeDue(r.end_at, now);
+              return (
+                <li key={r.id}>
+                  <Link href={withBack(`/rentals/${r.id}`, here)} className="flex items-center justify-between gap-3 px-3 py-3 active:bg-slate-50">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium">{r.make} {r.model} <span className="font-mono text-sm font-normal text-slate-500">{r.registration_number}</span></p>
+                      <p className="truncate text-sm text-slate-500">{r.customer_name} · {formatIST(r.end_at)}</p>
+                    </div>
+                    <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${due.overdue ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700"}`}>{due.text}</span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
       <form className="flex gap-2" role="search">
         <input type="hidden" name="show" value={show} />
         <input name="q" defaultValue={sp.q ?? ""} type="search" placeholder="Search car or renter" className="input" aria-label="Search fleet" />

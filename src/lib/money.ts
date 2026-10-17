@@ -15,6 +15,11 @@ export function paiseToInput(paise: number): string {
   return p === 0 ? String(r) : `${r}.${String(p).padStart(2, "0")}`;
 }
 
+/** Whole rupees get no decimals (₹1,23,456); otherwise two (₹1,234.50). For big numbers in tight places. */
+export function formatINRShort(paise: number): string {
+  return paise % 100 === 0 ? new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(paise / 100) : formatINR(paise);
+}
+
 const inr = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" });
 export function formatINR(paise: number): string {
   return inr.format(paise / 100);

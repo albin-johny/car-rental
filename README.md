@@ -11,8 +11,8 @@ Mobile-first PWA for managing one car-rental business (up to ~50 vehicles, ~3 ac
 | --- | --- | --- |
 | 1 | Foundation: auth, roles, vehicles, vehicle photos, PWA shell | ✅ Built and deployed |
 | 2a | Customers, rentals, no-double-booking, fleet status board | ✅ Built and tested |
-| 2b | Pickup / return inspections with photos | 🔶 Built, awaiting review and phone testing |
-| 3 | Income report per car, dashboard | ⬜ |
+| 2b | Pickup / return inspections with photos | ✅ Built and tested |
+| 3 | Income report per car, dashboard | 🔶 Built, awaiting review |
 | 4 | Backups + restore test, tests, staff management, handover | ⬜ |
 | 5 | Maintenance, expenses, reminders (optional, after launch) | ⬜ |
 
@@ -89,18 +89,19 @@ Inspections record the car's condition at handover, as evidence for later disput
 - **Retention:** images expire after 1 year (see *Photo retention*); the record stays. An expired image is shown as a "Photo expired" placeholder.
 - Rentals entered as history ("Record as" already out / completed) have no inspection; the rental page says so.
 
+## Phase 3 (built, in review)
+
+No schema change: reports read the existing rentals.
+
+- **Reports tab** (`/reports`): **rent per car** for Today, This week (Mon-Sun), This month, Last month, This year, This FY (Apr-Mar), Last FY, or a **custom** from-to range (all in India time). Totals (rent, rentals, booked days, average per rental and per day), **utilisation**, and every car ranked by rent with a share bar. Cars with no rentals in the period are listed greyed at the bottom. On screen only; no CSV.
+- **Per-car drill-down** (`/reports/<car>`): that car's rent in the chosen period, its **lifetime rent**, and the exact rentals behind the number. The vehicle page also shows lifetime rent and links here.
+- **Fleet dashboard:** *Rent this month*, *Overdue* (red), and a *Due back soon* list (overdue first, then due within 24 hours).
+- **"How this is calculated"** is printed on the report page (definitions below).
+- **Reconciliation:** the report total equals the sum of the rentals in the drill-down; this is checked against known data, including IST/UTC day boundaries, financial-year flips and exact 24-hour rounding.
+
 ## Roadmap
 
 Review every diff and run the checks before merging. Never edit an applied migration; add a new numbered file.
-
-### Phase 3: income report and dashboard
-- [ ] **Rent per car for a chosen period** (today, week, month, year, financial year Apr-Mar, custom), with totals; screen only, no CSV
-- [ ] Per vehicle: rental count, booked days, total rent, average per rental; fleet total
-- [ ] Choose and state the date basis on the page (by rental start date is the default)
-- [ ] Per-car lifetime rent; drill-down from any total to the rentals behind it
-- [ ] Utilisation (rental days ÷ available fleet days, definition written on the page)
-- [ ] Reconciliation test: report totals equal the sum of the underlying rentals
-- [ ] Dashboard on the fleet page: period rent, upcoming returns, overdue
 
 ### Phase 4: quality, safety, handover
 - [ ] `audit_logs` (who, when, entity, action, before/after) for vehicles, rentals, inspections and user changes, with an admin-only viewer
@@ -127,9 +128,12 @@ Rules for every table: integer paise for money, UTC ISO timestamps, foreign keys
 
 ## Reporting definitions
 
-- **Rent earned** = the agreed total of a rental. Cancelled rentals count as zero.
-- **Rentals so far** = booked + active + returned (cancelled bookings excluded).
-- Every report states which date basis it uses.
+- **Rent** = the agreed total of each rental that **went out** (status Out now or Returned). Cancelled rentals count as zero. Booked rentals that haven't gone out are shown separately ("booked, not yet out") and are never counted as rent.
+- **Period** = the period a rental's **start date** falls in (India time). A rental is not split across periods, so a rental starting 30 Sep 23:59 IST belongs to September and one starting 1 Oct 00:00 IST to October.
+- **Booked days** = 24-hour blocks per rental, rounded up, minimum 1 (an exact 48 hours is 2 days; 48 hours and 1 second is 3).
+- **Utilisation** = time the active cars were out ÷ (active cars × time elapsed in the period so far). A rental counts from its pickup (or booked start) until it was returned (or its expected end, or now if overdue). Not available for a period that hasn't started.
+- **Rentals so far** = booked + out now + returned (cancelled excluded).
+- Timestamps must stay in the canonical `toISOString()` form (`...:00.000Z`); queries compare them as text.
 
 ## Photo retention (important)
 
@@ -210,7 +214,7 @@ and its schema changes, check `npx @better-auth/cli generate` against `migration
 
 ## Project layout
 
-- `src/app` – pages (`/fleet`, `/rentals`, `/rentals/new`, `/rentals/[id]`, `/rentals/[id]/inspect/[type]`, `/customers`, `/customers/[id]`, `/vehicles`, `/vehicles/new`, `/vehicles/[id]`, `/account`, `/login`), server actions, API routes (`/api/auth/*`, `/api/customers`, `/api/vehicles/[id]/photos`, `/api/photos/[id]`, `/api/inspections/[id]/photos`, `/api/inspection-photos/[id]`)
+- `src/app` – pages (`/fleet`, `/reports`, `/reports/[id]`, `/rentals`, `/rentals/new`, `/rentals/[id]`, `/rentals/[id]/inspect/[type]`, `/customers`, `/customers/[id]`, `/vehicles`, `/vehicles/new`, `/vehicles/[id]`, `/account`, `/login`), server actions, API routes (`/api/auth/*`, `/api/customers`, `/api/vehicles/[id]/photos`, `/api/photos/[id]`, `/api/inspections/[id]/photos`, `/api/inspection-photos/[id]`)
 - `src/components` – bottom nav, vehicle / rental / customer forms, photo manager, install button
 - `src/lib` – auth, session guards, vehicle, customer and rental queries + validation, money and IST time helpers, client-side image compression
 - `migrations/` – D1 schema · `scripts/create-user.mjs` – prints SQL to create a user

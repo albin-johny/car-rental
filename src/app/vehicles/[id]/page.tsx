@@ -5,6 +5,8 @@ import { ScreenHeader } from "@/components/screen-header";
 import { safeBack, selfUrl, withBack } from "@/lib/nav";
 import { getVehicle, listPhotos } from "@/lib/vehicles";
 import { listRentals } from "@/lib/rentals";
+import { lifetimeIncome } from "@/lib/reports";
+import { formatINR as inr } from "@/lib/money";
 import { RentalCard } from "@/components/rental-card";
 import { MAX_PHOTOS } from "@/lib/vehicle-constants";
 import { paiseToInput } from "@/lib/money";
@@ -24,7 +26,7 @@ export default async function VehiclePage({ params, searchParams }: { params: Pr
   const here = selfUrl(`/vehicles/${id}`, { back: rawBack });
   const v = await getVehicle(id);
   if (!v) notFound();
-  const [photos, rentals] = await Promise.all([listPhotos(id), listRentals({ vehicleId: id, tab: "all", limit: 5 })]);
+  const [photos, rentals, life] = await Promise.all([listPhotos(id), listRentals({ vehicleId: id, tab: "all", limit: 5 }), lifetimeIncome(id)]);
 
   const initial: Record<string, string> = {
     registration_number: v.registration_number,
@@ -50,6 +52,11 @@ export default async function VehiclePage({ params, searchParams }: { params: Pr
           {v.is_active ? "Active" : "Inactive"} · updated {formatIST(v.updated_at)} IST
         </p>
       </div>
+      <Link href={withBack(`/reports/${id}?p=month`, here)} className="block rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200 active:bg-slate-50">
+        <p className="text-xs text-slate-500">Lifetime rent</p>
+        <p className="text-xl font-bold">{inr(life.rent_paise)}</p>
+        <p className="text-xs text-slate-500">{life.rentals} rental{life.rentals === 1 ? "" : "s"} that went out · see income report ›</p>
+      </Link>
       <section className="space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="font-semibold">Rentals</h2>
