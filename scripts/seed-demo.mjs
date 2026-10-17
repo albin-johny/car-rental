@@ -1,5 +1,5 @@
 // Prints SQL that fills a LOCAL database with demo vehicles, customers and rentals
-// (out now / overdue / upcoming / past / cancelled) plus inspection records. Safe to re-run: it first removes
+// (out now / overdue / upcoming / past / cancelled) plus inspection records and service history. Safe to re-run: it first removes
 // its own rows (ids starting with "demo-") and never touches anything else.
 //   node scripts/seed-demo.mjs > demo.sql && npx wrangler d1 execute car-rental --local --file demo.sql && rm demo.sql
 // Do NOT run this against --remote: it would put fake data into the real books.
@@ -41,9 +41,17 @@ const last = ["Nair","Menon","Kumar","Thomas","Varghese","Pillai","Joseph","Khan
 const customers = first.map((f, i) => ({ id: `demo-c${String(i + 1).padStart(2, "0")}`, name: `${f} ${pick(last)}`, phone: `9${int(100000000, 999999999)}` }));
 
 const out = [];
-out.push(`DELETE FROM inspections WHERE rental_id LIKE 'demo-%';`);
-out.push(`DELETE FROM rentals WHERE id LIKE 'demo-%';`);
-out.push(`DELETE FROM customers WHERE id LIKE 'demo-%';`);
+// Everything attached to a demo car or demo rental is fake too, so it goes first (children before parents).
+// Photo files in R2 are left behind; re-run seed-demo-photos.mjs afterwards.
+const demoInsp = `SELECT id FROM inspections WHERE vehicle_id LIKE 'demo-%' OR rental_id LIKE 'demo-%'`;
+out.push(`DELETE FROM inspection_addenda WHERE inspection_id IN (${demoInsp});`);
+out.push(`DELETE FROM inspection_photos WHERE inspection_id IN (${demoInsp});`);
+out.push(`DELETE FROM inspections WHERE vehicle_id LIKE 'demo-%' OR rental_id LIKE 'demo-%';`);
+out.push(`DELETE FROM rentals WHERE vehicle_id LIKE 'demo-%' OR id LIKE 'demo-%';`);
+out.push(`DELETE FROM service_record_items WHERE record_id IN (SELECT id FROM service_records WHERE vehicle_id LIKE 'demo-%');`);
+out.push(`DELETE FROM service_records WHERE vehicle_id LIKE 'demo-%';`);
+out.push(`DELETE FROM vehicle_photos WHERE vehicle_id LIKE 'demo-%';`);
+out.push(`DELETE FROM customers WHERE id LIKE 'demo-%' AND NOT EXISTS (SELECT 1 FROM rentals WHERE customer_id = customers.id);`);
 out.push(`DELETE FROM vehicles WHERE id LIKE 'demo-%';`);
 
 const vehicles = cars.map(([make, model, fuel, trans, seats, rate], i) => ({
@@ -56,7 +64,7 @@ const vehicles = cars.map(([make, model, fuel, trans, seats, rate], i) => ({
 for (const v of vehicles)
   out.push(`INSERT INTO vehicles (id,registration_number,make,model,year,color,fuel_type,transmission,seats,odometer_km,daily_rate_paise,deposit_paise,notes,is_active,created_at,updated_at) VALUES (${q(v.id)},${q(v.reg)},${q(v.make)},${q(v.model)},${v.year},${q(v.color)},${q(v.fuel)},${q(v.trans)},${v.seats},${v.odo},${v.rate},${int(2, 8) * 100000},NULL,${v.active},${q(nowIso)},${q(nowIso)});`);
 for (const c of customers)
-  out.push(`INSERT INTO customers (id,name,name_key,phone,created_at,updated_at) VALUES (${q(c.id)},${q(c.name)},${q(c.name.toLowerCase())},${q(c.phone)},${q(nowIso)},${q(nowIso)});`);
+  out.push(`INSERT OR IGNORE INTO customers (id,name,name_key,phone,created_at,updated_at) VALUES (${q(c.id)},${q(c.name)},${q(c.name.toLowerCase())},${q(c.phone)},${q(nowIso)},${q(nowIso)});`);
 
 const notes = [null, null, null, "Airport pickup", "Needs child seat", "Corporate booking", "Repeat customer", "Wedding trip", "Will return with full tank", "Advance paid in cash"];
 const rentals = [];
@@ -140,5 +148,35 @@ for (const r of rentals.filter((x) => x.status === "active" || x.status === "ret
   running.set(r.v.id, odoReturn);
 }
 for (const v of vehicles) out.push(`UPDATE vehicles SET odometer_km = ${running.get(v.id)} WHERE id = ${q(v.id)};`);
+// Service history for most cars: 2-5 entries each over the last ~10 months, km rising, some with tyre work.
+const serviceSets = [
+  ["General service", "Engine oil change", "Oil filter", "Air filter"],
+  ["Tyre rotation", "Wheel alignment"],
+  ["Brake pads (front)", "Brake fluid"],
+  ["Tyre rotation", "Wheel balancing"],
+  ["Battery replacement"],
+  ["Wiper blades", "Headlight bulb"],
+  ["AC service", "Cabin (AC) filter"],
+  ["Tyre replacement", "Wheel alignment", "Wheel balancing"],
+  ["Suspension repair"],
+  ["Engine oil change", "Oil filter"],
+];
+const serviceNotes = [null, null, "Pads worn to the minimum, replaced both sides", "Customer reported a pull to the left; alignment corrected", "Rotated front to rear, pressures set", "Coolant level was low, topped up", "Replacement done at the authorised workshop", null];
+let svcN = 0;
+for (const v of live) {
+  if (rnd() < 0.25) continue; // some cars have no history yet
+  const count = int(2, 5);
+  let km = Math.max(2000, v.odo - int(8000, 25000));
+  for (let k = 0; k < count; k++) {
+    const dayOffset = -Math.round(300 - (k * 300) / count) + int(-12, 0);
+    const on = new Date(now + dayOffset * D + IST).toISOString().slice(0, 10);
+    km += int(1800, 6500);
+    const names = serviceSets[(k + Number(v.id.slice(-2))) % serviceSets.length];
+    const id = `demo-s${String(++svcN).padStart(3, "0")}`;
+    const created = iso(now + dayOffset * D);
+    out.push(`INSERT INTO service_records (id,vehicle_id,serviced_on,odometer_km,notes,cost_paise,created_by,created_at,updated_at) VALUES (${q(id)},${q(v.id)},${q(on)},${km},${q(pick(serviceNotes))},${rnd() < 0.8 ? int(5, 260) * 10000 : "NULL"},(SELECT id FROM "user" ORDER BY createdAt LIMIT 1),${q(created)},${q(created)});`);
+    for (const n of names) out.push(`INSERT OR IGNORE INTO service_record_items (record_id,item_id) SELECT ${q(id)}, id FROM service_items WHERE name_key = ${q(n.toLowerCase())};`);
+  }
+}
 console.log(out.join("\n"));
 console.error(`demo: ${vehicles.length} vehicles, ${customers.length} customers, ${rentals.length} rentals (${["active", "booked", "returned", "cancelled"].map((s) => `${rentals.filter((r) => r.status === s).length} ${s}`).join(", ")})`);

@@ -14,7 +14,7 @@ Mobile-first PWA for managing one car-rental business (up to ~50 vehicles, ~3 ac
 | 2b | Pickup / return inspections with photos | ✅ Built and tested |
 | 3 | Income report per car, dashboard | ✅ Built and tested |
 | 4 | Audit log, staff management, tests, restore guide, handover | 🔶 Built, awaiting review |
-| 5 | Maintenance, expenses, reminders (optional, after launch) | ⬜ |
+| 5 | Service history ✅ built; expenses, expiry reminders (optional) | 🔶 Service history built, awaiting review |
 
 ---
 
@@ -120,6 +120,19 @@ Migration `0007`.
 - **Shared styles** live in `src/app/globals.css`: `.card` / `.card-link`, `.btn` (+ `-secondary`, `-danger`, `-sm`), `.input`, `.label`, `.chip`, `.badge`. Hover states only apply on devices with a pointer (iPad trackpad / mouse); keyboard users get a visible focus ring everywhere. Use these classes instead of repeating utility strings.
 - **Checking a layout change:** build, then screenshot the screens at 390 (phone), 768, 1180 and 1366 wide and confirm nothing scrolls sideways.
 
+## Service history (built, in review)
+
+Migrations `0008` and `0009`. Under each vehicle: **Service history**.
+
+- **An entry** = service date (not in the future), odometer km, an optional free-text description, and **any number of work items** (repairs, replacements, tyre rotation, wheel alignment, tyre replacement, ...). It must have at least one item or a description. It records who added it.
+- **Work items work like customer names:** every item typed is saved once in a shared catalogue (case- and spacing-insensitive: "tyre  ROTATION" is "Tyre rotation") and suggested next time. With nothing typed, the most-used items are shown as one-tap chips; typing filters them (prefix matches first, then by use). A starter list (oil change, brake pads, tyre rotation, wheel alignment, ...) is included so suggestions exist from day one. Items are never deleted from the catalogue.
+- **Last done:** per item for that car, the latest date and km (so you can see when tyres were last rotated or aligned). The vehicle header also shows the last service date and km.
+- **A gentle warning** when the km is lower than the last known reading (it never blocks).
+- **Who can change an entry:** staff add entries; the author can edit or delete their own for 24 hours; admins can edit or delete any. (Service entries record their author but are not part of the audit log, which covers rentals and inspections only.)
+- **Compact vehicle page:** **Photos** and **Vehicle details** are each a folded tile (Photos previews its first 4 thumbnails and the count; tap to open the gallery and add photos; Vehicle details shows a one-line summary and holds the edit form and Deactivate), rentals are slim two-line rows, and service history shows only the **latest 3 entries as tiles** (date and km). Tap a tile for the work done, cost, description and bills (and Edit / Delete); "Show all N entries" reveals the rest.
+- **Cost (optional):** a rupee amount per entry, stored as integer paise like all money. Each car shows its total service spend and each entry its cost.
+- **Bills (optional):** up to 5 files per entry, each a **photo** (resized on the phone to stay legible, JPEG up to 600 KB) or a **PDF** (up to 3 MB). The file type is checked from its real bytes on the server, not from its label. Bills are stored privately in R2 under `service/` and only served through a signed-in route; they are **never auto-deleted** (only `inspections/` photos expire). Photos open in the in-app viewer; PDFs open in the browser's PDF view. Bills can be added, or removed, by whoever may edit the entry (the author for 24 hours, admins anytime); deleting an entry deletes its files.
+
 ## Roadmap
 
 Review every diff and run the checks before merging. Never edit an applied migration; add a new numbered file.
@@ -128,17 +141,18 @@ Review every diff and run the checks before merging. Never edit an applied migra
 - [ ] Manual pass on a real phone, a tablet and a desktop (camera and gallery photo flow, photo viewer swipe, chips, install to home screen, Safari)
 - [ ] Import the real fleet data and verify it
 - [ ] Billing / usage alert and the 365-day `inspections/` lifecycle rule set in Cloudflare
-- [ ] Optional: rate limiting on photo uploads (3 trusted staff, so low priority)
+- [ ] Optional: service due reminders (by date or km), a fleet-wide service cost report, rate limiting on photo and bill uploads (3 trusted staff, so low priority)
 - [ ] Hand ownership to the customer (Cloudflare account, GitHub, domain); rotate the secret; remove developer access
 
 ### Phase 5: optional, after launch
-- [ ] Maintenance records, expiry reminders, expenses per vehicle, printable PDF reports
+- [x] Service history (above)
+- [ ] Service due reminders, registration and insurance expiry reminders, expenses per vehicle, printable PDF reports
 
 ---
 
 ## Data model
 
-Auth tables (Better Auth; `user` has `role` and `disabled`), `vehicles`, `vehicle_photos`, `customers`, `rentals`, `inspections`, `inspection_photos`, `inspection_addenda`, `audit_logs` (append-only).
+Auth tables (Better Auth; `user` has `role` and `disabled`), `service_items`, `service_records`, `service_record_items`, `service_bills`, `vehicles`, `vehicle_photos`, `customers`, `rentals`, `inspections`, `inspection_photos`, `inspection_addenda`, `audit_logs` (append-only).
 
 Rules for every table: integer paise for money, UTC ISO timestamps, foreign keys on, `CHECK` constraints on amounts and statuses, unique constraints (registration number, rental number, customer phone + name), and indexes for the common searches.
 
@@ -158,6 +172,7 @@ The 365-day R2 lifecycle rule deletes any object matching its prefix. Scope it a
 | Prefix | Content | Expire after 365 days? |
 | --- | --- | --- |
 | `inspections/` | pickup and return photos | ✅ Yes |
+| `service/` | service bills (photos and PDFs) | ❌ No (financial records) |
 | `vehicles/` | vehicle gallery photos | ❌ No |
 | `backups/` | database exports | ❌ No (manage separately) |
 
@@ -195,7 +210,7 @@ npm run dev                             # http://localhost:3000
 
 Arguments: `<username> "<name>" <admin|staff> [email]`. The username is 3-30 characters (letters, digits, `_`, `.`) and is what people type to sign in; an email is optional and defaults to a placeholder `<username>@car-rental.local`. Passwords must be at least 10 characters. Create staff users the same way with role `staff`.
 
-**Demo data (local only):** `node scripts/seed-demo.mjs > demo.sql && npx wrangler d1 execute car-rental --local --file demo.sql && rm demo.sql` adds 30 vehicles, 28 customers and about 130 rentals (out now, overdue, upcoming, past, cancelled) with inspection records. It only manages its own `demo-` rows, so it is safe to re-run and leaves your own entries alone. Never run it with `--remote`. **Stop `npm run dev` before running any `wrangler d1 ... --local` command** (migrations, seed, creating users); a running dev server keeps the local database open and fails with "Failed to get session commit token" if it changes underneath it.
+**Demo data (local only):** `node scripts/seed-demo.mjs > demo.sql && npx wrangler d1 execute car-rental --local --file demo.sql && rm demo.sql` adds 30 vehicles, 28 customers and about 130 rentals (out now, overdue, upcoming, past, cancelled) with inspection records and service history. It only manages its own `demo-` rows, so it is safe to re-run and leaves your own entries alone. Never run it with `--remote`. **Stop `npm run dev` before running any `wrangler d1 ... --local` command** (migrations, seed, creating users); a running dev server keeps the local database open and fails with "Failed to get session commit token" if it changes underneath it.
 
 **Demo photos (local only):** after the demo data, with `npm run dev` stopped, run `node scripts/seed-demo-photos.mjs`. It adds placeholder images (`scripts/demo-photos/`, labelled "DEMO n") to most demo inspections (1-8 each), a few "added later" photos, and 1-5 gallery photos to most demo vehicles, written straight into the local database and R2. Re-running replaces its own photos. Use `--persist-to <dir>` to target another local state folder.
 

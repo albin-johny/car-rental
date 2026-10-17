@@ -2,14 +2,17 @@
 const TARGET_BYTES = 300 * 1024;
 const MAX_SIDE = 1600;
 
+export type CompressOptions = { maxSide?: number; targetBytes?: number };
+
 function toBlob(canvas: HTMLCanvasElement, quality: number) {
   return new Promise<Blob | null>((res) => canvas.toBlob(res, "image/jpeg", quality));
 }
 
-export async function compressImage(file: File): Promise<Blob> {
+export async function compressImage(file: File, opts: CompressOptions = {}): Promise<Blob> {
+  const targetBytes = opts.targetBytes ?? TARGET_BYTES;
   const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" }).catch(() => null);
   if (!bitmap) throw new Error("This image format is not supported");
-  let scale = Math.min(1, MAX_SIDE / Math.max(bitmap.width, bitmap.height));
+  let scale = Math.min(1, (opts.maxSide ?? MAX_SIDE) / Math.max(bitmap.width, bitmap.height));
   try {
     for (let attempt = 0; attempt < 6; attempt++) {
       const canvas = document.createElement("canvas");
@@ -22,7 +25,7 @@ export async function compressImage(file: File): Promise<Blob> {
       ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
       for (const q of [0.85, 0.75, 0.65, 0.55, 0.45]) {
         const blob = await toBlob(canvas, q);
-        if (blob && blob.size <= TARGET_BYTES) return blob;
+        if (blob && blob.size <= targetBytes) return blob;
       }
       scale *= 0.8;
     }

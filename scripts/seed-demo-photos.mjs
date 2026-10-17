@@ -2,6 +2,7 @@
 //   - most demo inspections get 1-8 photos (some with just one, some with many)
 //   - a few demo inspections that were completed without photos get "added later" photos (amber)
 //   - most demo vehicles get 1-5 gallery photos
+//   - about half of the demo service entries get a bill (a photo or the small demo PDF)
 // Run AFTER scripts/seed-demo.mjs, with `npm run dev` STOPPED (it opens the local database directly):
 //   node scripts/seed-demo-photos.mjs
 // Safe to re-run: it removes its own demo photos first. Local only; there is no remote mode.
@@ -31,6 +32,10 @@ try {
   const admin = (await DB.prepare(`SELECT id FROM "user" WHERE role = 'admin' ORDER BY createdAt LIMIT 1`).first()) ?? first;
 
   // 1) remove previous demo photos (rows + R2 objects)
+  // service bills: files live under service/demo-<vehicle>/..., rows cascade away with the demo entries
+  for (const o of (await PHOTOS.list({ prefix: "service/demo-" })).objects) await PHOTOS.delete(o.key);
+  await DB.prepare(`DELETE FROM service_bills WHERE id LIKE 'demo-%'`).run();
+
   for (const table of ["inspection_photos", "vehicle_photos"]) {
     const { results } = await DB.prepare(`SELECT id, r2_key FROM ${table} WHERE id LIKE 'demo-%'`).all();
     for (const r of results) await PHOTOS.delete(r.r2_key);
@@ -99,6 +104,21 @@ try {
     }
   }
 
+  // 4) service bills
+  const pdf = readFileSync(join(root, "scripts/demo-bills/demo-bill.pdf"));
+  const { results: recs } = await DB.prepare(`SELECT id, vehicle_id, created_at FROM service_records WHERE id LIKE 'demo-%' ORDER BY id`).all();
+  let bills = 0;
+  for (const [idx, r] of recs.entries()) {
+    if (rnd() < 0.5) continue;
+    const isPdf = rnd() < 0.25;
+    const bytes = isPdf ? pdf : images[(idx * 2 + 1) % images.length];
+    const key = `service/${r.vehicle_id}/${r.id}/demo-${crypto.randomUUID()}.${isPdf ? "pdf" : "jpg"}`;
+    await PHOTOS.put(key, bytes, { httpMetadata: { contentType: isPdf ? "application/pdf" : "image/jpeg" } });
+    await DB.prepare(`INSERT INTO service_bills (id,record_id,r2_key,content_type,size_bytes,created_by,created_at) VALUES (?,?,?,?,?,?,?)`)
+      .bind(newId("sb"), r.id, key, isPdf ? "application/pdf" : "image/jpeg", bytes.byteLength, first.id, r.created_at).run();
+    bills++;
+  }
+  console.log(`service bills: ${bills} of ${recs.length} demo service entries have a bill`);
   console.log(`inspections: ${withPhotos} with photos, ${without} without (${late} of those got "added later" photos) | ${photoCount} inspection photos`);
   console.log(`vehicles: ${vCars} of ${vehicles.length} cars got ${vPhotos} gallery photos`);
 } finally {

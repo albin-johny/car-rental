@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { compressImage } from "@/lib/compress-image";
 import { PhotoViewer } from "./photo-viewer";
 
-export function PhotoManager({ vehicleId, photos, max }: { vehicleId: string; photos: { id: string }[]; max: number }) {
+export function PhotoManager({ vehicleId, photos, max, showTitle = true }: { vehicleId: string; photos: { id: string }[]; max: number; showTitle?: boolean }) {
   const router = useRouter();
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -44,7 +44,7 @@ export function PhotoManager({ vehicleId, photos, max }: { vehicleId: string; ph
 
   return (
     <section className="space-y-3">
-      <h2 className="font-semibold">Photos ({photos.length}/{max})</h2>
+      {showTitle && <h2 className="font-semibold">Photos ({photos.length}/{max})</h2>}
       <div className="grid grid-cols-2 gap-2">
         {photos.map((p, i) => (
           <div key={p.id} className="relative overflow-hidden rounded-lg bg-slate-200">

@@ -16,6 +16,13 @@ The app works on phones and tablets (iPad). On a phone the five sections are alo
 - A car goes **out** when the **pickup inspection** is completed and comes **back** when the **return inspection** is completed. Both need at least one photo.
 - **Reports** shows rent per car for a day, week, month, year, financial year or any dates you choose.
 
+## Service history
+Open a car under **Vehicles**. The car's **Photos** and **Vehicle details** are each folded into one tile (tap a tile to open it; Photos previews the first few pictures, and Vehicle details is where you change the car's information), and **Service history** shows the latest 3 services as small tiles with the date and km. Tap a tile to see what was done, the price and the bill; tap **Show all** for older ones. To add one, tap **+ Add service**, check the date, enter the km, then add what was done: type a repair or replacement (for example "brake pad" or "tyre rotation") and tap a suggestion, or tap **Add** for something new. Add as many items as were done, add a description if you like, and save. Items you type are remembered and suggested next time, so the list builds itself. Tyre rotation and wheel alignment are recorded the same way; **Last done** shows when each was last done and at what km.
+
+You can also enter the **cost** and attach the **bill**: tap **Photograph bill** to take a picture, or **Photo or PDF** to pick a file (up to 5 per entry). Each car shows its total service spend. Bills are kept for good, so they stay available as records.
+
+You can correct or delete an entry you added for 24 hours; an admin can change any entry.
+
 ## Adding and removing staff (admins only)
 **Account → Staff**
 - **Add a person:** name, a username, a role and a temporary password (use *Generate*). Tell them the username and password. They can change the password themselves under **Account → Change password**.

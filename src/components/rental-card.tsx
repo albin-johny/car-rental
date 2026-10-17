@@ -9,7 +9,22 @@ export function StatusBadge({ status }: { status: RentalListItem["status"] }) {
   return <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_STYLE[status]}`}>{STATUS_LABEL[status]}</span>;
 }
 
-export function RentalCard({ r, from }: { r: RentalListItem; from?: string }) {
+export function RentalCard({ r, from, compact = false }: { r: RentalListItem; from?: string; compact?: boolean }) {
+  if (compact) {
+    // Slim two-line row for crowded screens (e.g. a vehicle page): who, when, how much.
+    return (
+      <Link href={from ? withBack(`/rentals/${r.id}`, from) : `/rentals/${r.id}`} className="card-link block px-4 py-3">
+        <div className="flex items-center justify-between gap-2">
+          <span className="min-w-0 truncate font-medium">{r.customer_name} <span className="font-mono text-xs font-normal text-slate-500">{r.rental_number}</span></span>
+          <StatusBadge status={r.status} />
+        </div>
+        <div className="mt-0.5 flex items-center justify-between gap-2 text-sm text-slate-500">
+          <span className="min-w-0 truncate">{formatISTCompact(r.start_at)} → {formatISTCompact(r.end_at)}</span>
+          <span className="shrink-0 font-semibold text-slate-900">{formatINR(r.total_paise)}</span>
+        </div>
+      </Link>
+    );
+  }
   return (
     <Link href={from ? withBack(`/rentals/${r.id}`, from) : `/rentals/${r.id}`} className="block card-link p-3">
       <div className="flex items-center justify-between gap-2">

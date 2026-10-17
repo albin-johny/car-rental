@@ -6,7 +6,13 @@ import { safeBack, selfUrl, withBack } from "@/lib/nav";
 import { getVehicle, listPhotos } from "@/lib/vehicles";
 import { listRentals } from "@/lib/rentals";
 import { lifetimeIncome } from "@/lib/reports";
-import { formatINR as inr } from "@/lib/money";
+import { lastDoneForVehicle, lastServiceSummary, listServiceHistory, serviceSpend } from "@/lib/service";
+import { canModifyService, formatKm, formatServiceDate } from "@/lib/service-shared";
+import { istDateInput } from "@/lib/periods";
+import { ServiceHistory } from "@/components/service-history";
+import { Collapsible } from "@/components/collapsible";
+import { createServiceAction, deleteServiceAction, updateServiceAction } from "../service-actions";
+import { formatINR as inr, formatINRShort } from "@/lib/money";
 import { RentalCard } from "@/components/rental-card";
 import { MAX_PHOTOS } from "@/lib/vehicle-constants";
 import { paiseToInput } from "@/lib/money";
@@ -18,6 +24,8 @@ import { updateVehicleAction } from "../actions";
 
 export const metadata = { title: "Edit vehicle" };
 
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
 export default async function VehiclePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ back?: string }> }) {
   const user = await requireUser();
   const { id } = await params;
@@ -26,7 +34,7 @@ export default async function VehiclePage({ params, searchParams }: { params: Pr
   const here = selfUrl(`/vehicles/${id}`, { back: rawBack });
   const v = await getVehicle(id);
   if (!v) notFound();
-  const [photos, rentals, life] = await Promise.all([listPhotos(id), listRentals({ vehicleId: id, tab: "all", limit: 5 }), lifetimeIncome(id)]);
+  const [photos, rentals, life, service, lastDone, lastService, spend] = await Promise.all([listPhotos(id), listRentals({ vehicleId: id, tab: "all", limit: 3 }), lifetimeIncome(id), listServiceHistory(id), lastDoneForVehicle(id), lastServiceSummary(id), serviceSpend(id)]);
 
   const initial: Record<string, string> = {
     registration_number: v.registration_number,
@@ -51,6 +59,7 @@ export default async function VehiclePage({ params, searchParams }: { params: Pr
         <p className="text-sm text-slate-500">
           {v.is_active ? "Active" : "Inactive"} · updated {formatIST(v.updated_at)} IST
         </p>
+        {lastService && <p className="text-sm text-slate-500">Last service {formatServiceDate(lastService.serviced_on)} · {formatKm(lastService.odometer_km)}</p>}
       </div>
       <div className="space-y-6 lg:grid lg:grid-cols-2 lg:items-start lg:gap-8 lg:space-y-0">
       <div className="space-y-6">
@@ -64,14 +73,47 @@ export default async function VehiclePage({ params, searchParams }: { params: Pr
           <h2 className="font-semibold">Rentals</h2>
           <Link href={withBack(`/rentals/new?vehicle=${id}`, here)} className="btn btn-secondary btn-sm">Book this car</Link>
         </div>
-        {rentals.length === 0 ? <p className="text-sm text-slate-500">No rentals yet.</p> : <ul className="space-y-3">{rentals.map((r) => <li key={r.id}><RentalCard r={r} from={here} /></li>)}</ul>}
+        {rentals.length === 0 ? <p className="text-sm text-slate-500">No rentals yet.</p> : <ul className="space-y-2">{rentals.map((r) => <li key={r.id}><RentalCard r={r} from={here} compact /></li>)}</ul>}
         {rentals.length > 0 && <Link href={`/rentals?vehicle=${id}&tab=all`} className="block text-center text-sm text-blue-700">All rentals for this car →</Link>}
       </section>
-      <PhotoManager vehicleId={id} photos={photos.map((p) => ({ id: p.id }))} max={MAX_PHOTOS} />
+      <ServiceHistory
+        vehicleId={id}
+        today={istDateInput(Date.now())}
+        defaultKm={Math.max(v.odometer_km, service[0]?.odometer_km ?? 0)}
+        lastDone={lastDone}
+        spend={{ total: spend.total, priced: spend.priced }}
+        entries={service.map((r) => ({ id: r.id, serviced_on: r.serviced_on, odometer_km: r.odometer_km, notes: r.notes, items: r.items, cost_paise: r.cost_paise, bills: r.bills.map((b) => ({ id: b.id, content_type: b.content_type })), by: r.created_by_name, canModify: canModifyService(r, user) }))}
+        createAction={createServiceAction.bind(null, id)}
+        updateAction={updateServiceAction}
+        deleteAction={deleteServiceAction}
+      />
       </div>
       <div className="space-y-6">
-      <VehicleForm action={updateVehicleAction.bind(null, id)} initial={initial} submitLabel="Save changes" />
-      {user.role === "admin" && <ActiveToggle id={id} active={!!v.is_active} />}
+      <Collapsible
+        title={`Photos (${photos.length}/${MAX_PHOTOS})`}
+        summary={
+          photos.length === 0 ? (
+            "No photos yet"
+          ) : (
+            <span className="inline-flex items-center gap-1.5 align-middle">
+              {photos.slice(0, 4).map((p) => (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img key={p.id} src={`/api/photos/${p.id}`} alt="" className="h-10 w-10 rounded-md bg-slate-200 object-cover" loading="lazy" />
+              ))}
+              {photos.length > 4 && <span className="text-xs text-slate-500">+{photos.length - 4}</span>}
+            </span>
+          )
+        }
+      >
+        <PhotoManager vehicleId={id} photos={photos.map((p) => ({ id: p.id }))} max={MAX_PHOTOS} showTitle={false} />
+      </Collapsible>
+      <Collapsible
+        title="Vehicle details"
+        summary={`${cap(v.fuel_type)} · ${cap(v.transmission)} · ${v.seats} seats · ${formatINRShort(v.daily_rate_paise)}/day`}
+      >
+        <VehicleForm action={updateVehicleAction.bind(null, id)} initial={initial} submitLabel="Save changes" />
+        {user.role === "admin" && <ActiveToggle id={id} active={!!v.is_active} />}
+      </Collapsible>
       </div>
       </div>
     </div>

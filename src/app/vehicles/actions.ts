@@ -7,7 +7,7 @@ import { vehicleHasOpenRentals } from "@/lib/rentals";
 import { safeBack, withBack } from "@/lib/nav";
 import { insertVehicle, setActive, updateVehicle, vehicleSchema } from "@/lib/vehicles";
 
-export type FormState = { errors?: Record<string, string>; message?: string; values?: Record<string, string> } | null;
+export type FormState = { errors?: Record<string, string>; message?: string; values?: Record<string, string>; id?: string } | null;
 
 function parse(formData: FormData) {
   const values = Object.fromEntries([...formData].filter(([, v]) => typeof v === "string")) as Record<string, string>;
