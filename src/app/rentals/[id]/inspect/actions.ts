@@ -44,7 +44,7 @@ export async function inspectionFormAction(inspectionId: string, rentalId: strin
 export async function addAddendumAction(inspectionId: string, rentalId: string, _: FormState, formData: FormData): Promise<FormState> {
   const user = await requireUser();
   if (!(await getInspectionById(inspectionId))) return { message: "Inspection not found", errors: {} };
-  const r = await addAddendum(inspectionId, String(formData.get("note") ?? ""), user.id);
+  const r = await addAddendum(inspectionId, String(formData.get("note") ?? ""), user);
   if ("error" in r) return { message: r.error, errors: {} };
   revalidatePath(`/rentals/${rentalId}`, "layout");
   return { message: "Note added" };

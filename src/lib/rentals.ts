@@ -4,6 +4,9 @@ import { rupeesToPaise } from "./money";
 import { istInputToIso, istYear } from "./time";
 import { customerFieldsSchema, discardIfUnused, upsertCustomer } from "./customers";
 import type { RentalStatus } from "./rental-constants";
+import { auditStatement, diff, type AuditUser } from "./audit";
+import { formatINR } from "./money";
+import { formatIST } from "./time";
 
 export type Rental = {
   id: string;
@@ -90,8 +93,16 @@ async function conflictMessage(vehicleId: string, start: string, end: string, ex
   return c ? `This car is already booked for those dates (${c.rental_number})` : "Could not save the rental";
 }
 
-export async function createRental(v: RentalInput, userId: string): Promise<Result<{ id: string }>> {
+const carLabel = (r: { make: string; model: string; registration_number: string }) => `${r.make} ${r.model} (${r.registration_number})`;
+
+async function vehicleLabel(vehicleId: string): Promise<string> {
+  const v = await env().DB.prepare("SELECT make, model, registration_number FROM vehicles WHERE id = ?").bind(vehicleId).first<{ make: string; model: string; registration_number: string }>();
+  return v ? carLabel(v) : "unknown car";
+}
+
+export async function createRental(v: RentalInput, user: AuditUser): Promise<Result<{ id: string }>> {
   const db = env().DB;
+  const car = await vehicleLabel(v.vehicle_id);
   const customer = await upsertCustomer(v.customer_name, v.customer_phone);
   const customerId = customer.id;
   const now = new Date().toISOString();
@@ -101,7 +112,8 @@ export async function createRental(v: RentalInput, userId: string): Promise<Resu
 
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      const r = await db
+      const [r] = await db.batch([
+        db
         .prepare(
           `INSERT INTO rentals (id, rental_number, seq_year, seq, vehicle_id, customer_id, start_at, end_at,
              actual_pickup_at, actual_return_at, rate_snapshot_paise, total_paise, status, notes, created_by, created_at, updated_at)
@@ -110,8 +122,21 @@ export async function createRental(v: RentalInput, userId: string): Promise<Resu
            FROM vehicles v, (SELECT COALESCE(MAX(seq), 0) + 1 AS n FROM rentals WHERE seq_year = CAST(?2 AS INTEGER)) s
            WHERE v.id = ?3 AND v.is_active = 1 AND ${OVERLAP("v.id", "?5", "?6")}`,
         )
-        .bind(id, istYear(), v.vehicle_id, customerId, v.start_at, v.end_at, v.total, v.record_as, v.notes, userId, now, pickup, returned)
-        .run();
+        .bind(id, istYear(), v.vehicle_id, customerId, v.start_at, v.end_at, v.total, v.record_as, v.notes, user.id, now, pickup, returned),
+        // The log entry is written in the same batch, and only if the rental row really exists.
+        auditStatement(
+          user,
+          {
+            action: "rental.created",
+            entityType: "rental",
+            entityId: id,
+            rentalId: id,
+            summary: `Created rental: ${car} for ${v.customer_name}, ${formatIST(v.start_at)} to ${formatIST(v.end_at)}, ${formatINR(v.total)}${v.record_as === "booked" ? "" : ` (entered as ${v.record_as === "active" ? "already out" : "completed"})`}`,
+          },
+          "SELECT 1 FROM rentals WHERE id = ?1",
+          id,
+        ),
+      ]);
       if (!r.meta.changes) {
         if (customer.created) await discardIfUnused(customerId);
         return { error: await conflictMessage(v.vehicle_id, v.start_at, v.end_at) };
@@ -125,33 +150,64 @@ export async function createRental(v: RentalInput, userId: string): Promise<Resu
   return { error: "Could not allocate a rental number, please retry" };
 }
 
-export async function updateRental(id: string, v: RentalInput): Promise<Result> {
+export async function updateRental(id: string, v: RentalInput, user: AuditUser): Promise<Result> {
   const db = env().DB;
   const cur = await getRental(id);
   if (!cur) return { error: "Rental not found" };
   if (cur.status !== "booked" && cur.status !== "active") return { error: "Only booked or active rentals can be edited" };
 
   const customer = await upsertCustomer(v.customer_name, v.customer_phone);
-  const result = await applyUpdate(cur, v, customer.id);
+  // Work out what really changed (shown in the audit log) before applying it.
+  const [oldCar, newCar, oldCust] = await Promise.all([
+    vehicleLabel(cur.vehicle_id),
+    cur.status === "booked" ? vehicleLabel(v.vehicle_id) : Promise.resolve(null),
+    db.prepare("SELECT name, phone FROM customers WHERE id = ?").bind(cur.customer_id).first<{ name: string; phone: string }>(),
+  ]);
+  const before = { vehicle: oldCar, renter: `${oldCust?.name} (${oldCust?.phone})`, start: formatIST(cur.start_at), end: formatIST(cur.end_at), total: formatINR(cur.total_paise), notes: cur.notes };
+  const after = {
+    vehicle: newCar ?? oldCar,
+    renter: `${v.customer_name} (${v.customer_phone})`,
+    start: cur.status === "booked" ? formatIST(v.start_at) : before.start,
+    end: formatIST(v.end_at),
+    total: formatINR(v.total),
+    notes: v.notes,
+  };
+  const changes = diff({ vehicle: "Car", renter: "Renter", start: "Start", end: "End", total: "Total rent", notes: "Notes" }, before, after);
+  const result = await applyUpdate(cur, v, customer.id, user, changes);
   if ("error" in result && customer.created) await discardIfUnused(customer.id);
   return result;
 }
 
-async function applyUpdate(cur: Rental, v: RentalInput, customerId: string): Promise<Result> {
+async function applyUpdate(cur: Rental, v: RentalInput, customerId: string, user: AuditUser, changes: ReturnType<typeof diff>): Promise<Result> {
   const db = env().DB;
   const id = cur.id;
   const now = new Date().toISOString();
+  // Logged only if something really changed, and only if the update was applied (same batch).
+  const log = () =>
+    changes.length
+      ? [
+          auditStatement(
+            user,
+            { action: "rental.updated", entityType: "rental", entityId: id, rentalId: id, summary: `Edited rental: ${changes.map((c) => c.field.toLowerCase()).join(", ")}`, changes },
+            "SELECT 1 FROM rentals WHERE id = ?1 AND updated_at = ?2",
+            id,
+            now,
+          ),
+        ]
+      : [];
 
   if (cur.status === "active") {
     // Car is already out: vehicle and start are fixed; end, price, renter and notes can change.
     if (v.end_at <= cur.start_at) return { error: "End must be after the start" };
-    const r = await db
-      .prepare(
-        `UPDATE rentals SET customer_id=?2, end_at=?3, total_paise=?4, notes=?5, updated_at=?6
+    const [r] = await db.batch([
+      db
+        .prepare(
+          `UPDATE rentals SET customer_id=?2, end_at=?3, total_paise=?4, notes=?5, updated_at=?6
          WHERE id=?1 AND status='active' AND ${OVERLAP("rentals.vehicle_id", "rentals.start_at", "?3", "?1")}`,
-      )
-      .bind(id, customerId, v.end_at, v.total, v.notes, now)
-      .run();
+        )
+        .bind(id, customerId, v.end_at, v.total, v.notes, now),
+      ...log(),
+    ]);
     return r.meta.changes ? { ok: true } : { error: await conflictMessage(cur.vehicle_id, cur.start_at, v.end_at, id) };
   }
 
@@ -161,15 +217,17 @@ async function applyUpdate(cur: Rental, v: RentalInput, customerId: string): Pro
     if (!veh) return { error: "Vehicle not found" };
     rate = veh.daily_rate_paise;
   }
-  const r = await db
-    .prepare(
-      `UPDATE rentals SET vehicle_id=?2, customer_id=?3, start_at=?4, end_at=?5, rate_snapshot_paise=?6, total_paise=?7, notes=?8, updated_at=?9
+  const [r] = await db.batch([
+    db
+      .prepare(
+        `UPDATE rentals SET vehicle_id=?2, customer_id=?3, start_at=?4, end_at=?5, rate_snapshot_paise=?6, total_paise=?7, notes=?8, updated_at=?9
        WHERE id=?1 AND status='booked'
          AND EXISTS (SELECT 1 FROM vehicles v WHERE v.id = ?2 AND v.is_active = 1)
          AND ${OVERLAP("?2", "?4", "?5", "?1")}`,
-    )
-    .bind(id, v.vehicle_id, customerId, v.start_at, v.end_at, rate, v.total, v.notes, now)
-    .run();
+      )
+      .bind(id, v.vehicle_id, customerId, v.start_at, v.end_at, rate, v.total, v.notes, now),
+    ...log(),
+  ]);
   return r.meta.changes ? { ok: true } : { error: await conflictMessage(v.vehicle_id, v.start_at, v.end_at, id) };
 }
 
@@ -179,13 +237,27 @@ export type Transition = "cancel";
  * Pickup and return are NOT here: they happen only by completing an inspection
  * (see completeInspection in inspections.ts), which changes the status atomically.
  */
-export async function transitionRental(id: string, action: Transition): Promise<Result> {
+export async function transitionRental(id: string, action: Transition, user: AuditUser): Promise<Result> {
   if (action !== "cancel") return { error: "Unsupported action" };
   const now = new Date().toISOString();
-  const r = await env()
-    .DB.prepare("UPDATE rentals SET status='cancelled', updated_at=?2 WHERE id=?1 AND status='booked'")
-    .bind(id, now)
-    .run();
+  const db = env().DB;
+  const d = await db.prepare(`${SELECT_LIST} WHERE r.id = ?`).bind(id).first<RentalListItem>();
+  const [r] = await db.batch([
+    db.prepare("UPDATE rentals SET status='cancelled', updated_at=?2 WHERE id=?1 AND status='booked'").bind(id, now),
+    auditStatement(
+      user,
+      {
+        action: "rental.cancelled",
+        entityType: "rental",
+        entityId: id,
+        rentalId: id,
+        summary: d ? `Cancelled booking: ${carLabel(d)} for ${d.customer_name}, ${formatIST(d.start_at)} to ${formatIST(d.end_at)}, ${formatINR(d.total_paise)}` : "Cancelled booking",
+      },
+      "SELECT 1 FROM rentals WHERE id = ?1 AND status = 'cancelled' AND updated_at = ?2",
+      id,
+      now,
+    ),
+  ]);
   return r.meta.changes ? { ok: true } : { error: "Only a booked rental can be cancelled (its status has already changed)" };
 }
 

@@ -9,7 +9,8 @@ export async function getUser(): Promise<AppUser | null> {
   const h = await headers(); // first: marks the route dynamic so bindings are only read per request
   const s = await getAuth().api.getSession({ headers: h });
   if (!s) return null;
-  const u = s.user as typeof s.user & { role?: string };
+  const u = s.user as typeof s.user & { role?: string; disabled?: number };
+  if (u.disabled) return null; // second layer: a disabled user is treated as signed out
   return { id: u.id, name: u.name, email: u.email, role: u.role === "admin" ? "admin" : "staff" };
 }
 

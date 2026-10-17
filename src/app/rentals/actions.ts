@@ -28,25 +28,25 @@ export async function createRentalAction(back: string, _: FormState, formData: F
   const user = await requireUser();
   const p = parse(formData);
   if (!p.data) return p.state;
-  const r = await createRental(p.data, user.id);
+  const r = await createRental(p.data, user);
   if ("error" in r) return { message: r.error, errors: {}, values: p.values };
   refresh();
   redirect(withBack(`/rentals/${r.id}`, safeBack(back, "/rentals")));
 }
 
 export async function updateRentalAction(id: string, _: FormState, formData: FormData): Promise<FormState> {
-  await requireUser();
+  const user = await requireUser();
   const p = parse(formData);
   if (!p.data) return p.state;
-  const r = await updateRental(id, p.data);
+  const r = await updateRental(id, p.data, user);
   if ("error" in r) return { message: r.error, errors: {}, values: p.values };
   refresh(id);
   return { message: "Saved", values: p.values };
 }
 
 export async function transitionAction(id: string, action: Transition): Promise<{ error?: string }> {
-  await requireUser();
-  const r = await transitionRental(id, action);
+  const user = await requireUser();
+  const r = await transitionRental(id, action, user);
   refresh(id);
   return "error" in r ? { error: r.error } : {};
 }

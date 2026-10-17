@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-html { -webkit-tap-highlight-color: transparent; overscroll-behavior-y: none; }
+html { -webkit-tap-highlight-color: transparent; overscroll-behavior-y: none; scroll-padding-bottom: 7rem; } /* keep focused fields clear of the fixed tab bar */
 button, a { touch-action: manipulation; }
 body { @apply bg-slate-50 text-slate-900 antialiased;  }
 .input { @apply w-full rounded-lg border border-slate-300 bg-white px-3 py-3 text-base outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-200; }

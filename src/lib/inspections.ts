@@ -2,7 +2,10 @@ import { z } from "zod";
 import { env } from "./env";
 import { getRental } from "./rentals";
 import { MAX_PHOTO_BYTES } from "./vehicle-constants";
-import { MAX_INSPECTION_PHOTOS, MIN_PHOTOS, type InspectionType } from "./inspection-constants";
+import { MAX_INSPECTION_PHOTOS, MIN_PHOTOS, TYPE_LABEL, fuelLabel, type InspectionType } from "./inspection-constants";
+import { auditStatement, type AuditChange } from "./audit";
+
+type Actor = { id: string; name: string; role: "admin" | "staff" };
 
 export type Inspection = {
   id: string;
@@ -129,7 +132,7 @@ export async function saveDraft(id: string, v: Readings): Promise<Result> {
  * override (no photo at the time), so evidence that existed at completion can't be added to or diluted.
  */
 export async function addInspectionPhoto(
-  inspectionId: string, bytes: ArrayBuffer, user: { id: string; role: "admin" | "staff" },
+  inspectionId: string, bytes: ArrayBuffer, user: Actor,
 ): Promise<Result<{ id: string }> & { status?: number }> {
   const { DB, PHOTOS } = env();
   if (bytes.byteLength === 0 || bytes.byteLength > MAX_PHOTO_BYTES) return { error: `Photo must be under ${MAX_PHOTO_BYTES / 1024} KB`, status: 413 };
@@ -151,12 +154,24 @@ export async function addInspectionPhoto(
   await PHOTOS.put(key, bytes, { httpMetadata: { contentType: "image/jpeg" } });
   try {
     // New photos go to the end of the list.
-    await DB.prepare(
+    const insert = DB.prepare(
       `INSERT INTO inspection_photos (id,inspection_id,r2_key,position,size_bytes,created_by,created_at)
        SELECT ?1, ?2, ?3, COALESCE(MAX(position), 0) + 1, ?4, ?5, ?6 FROM inspection_photos WHERE inspection_id = ?2`,
-    )
-      .bind(id, inspectionId, key, bytes.byteLength, user.id, new Date().toISOString())
-      .run();
+    ).bind(id, inspectionId, key, bytes.byteLength, user.id, new Date().toISOString());
+    // A photo added to an already-completed inspection (admin only) is logged in the same batch.
+    if (insp.completed_at) {
+      await DB.batch([
+        insert,
+        auditStatement(
+          user,
+          { action: "inspection.photo_added_later", entityType: "inspection", entityId: inspectionId, rentalId: insp.rental_id, summary: `Added a photo to the completed ${insp.type} inspection` },
+          "SELECT 1 FROM inspection_photos WHERE id = ?1",
+          id,
+        ),
+      ]);
+    } else {
+      await insert.run();
+    }
   } catch (e) {
     await PHOTOS.delete(key);
     throw e;
@@ -181,32 +196,58 @@ export async function reorderInspectionPhotos(inspectionId: string, ids: string[
  * Draft: any staff can remove a photo. Completed: an admin can remove only a photo that was added
  * after completion (to fix a wrong upload); the evidence from completion time is never removable.
  */
-export async function deleteInspectionPhoto(photoId: string, user: { role: "admin" | "staff" }): Promise<Result & { status?: number }> {
+export async function deleteInspectionPhoto(photoId: string, user: Actor): Promise<Result & { status?: number }> {
   const { DB, PHOTOS } = env();
   const row = await DB.prepare(
-    "SELECT p.r2_key, p.created_at, i.completed_at FROM inspection_photos p JOIN inspections i ON i.id = p.inspection_id WHERE p.id = ?",
-  ).bind(photoId).first<{ r2_key: string; created_at: string; completed_at: string | null }>();
+    "SELECT p.r2_key, p.created_at, i.id AS inspection_id, i.rental_id, i.type, i.completed_at FROM inspection_photos p JOIN inspections i ON i.id = p.inspection_id WHERE p.id = ?",
+  ).bind(photoId).first<{ r2_key: string; created_at: string; inspection_id: string; rental_id: string; type: InspectionType; completed_at: string | null }>();
   if (!row) return { error: "Photo not found", status: 404 };
   if (row.completed_at) {
     if (user.role !== "admin" || row.created_at <= row.completed_at) {
       return { error: "Photos of a completed inspection can't be deleted", status: 409 };
     }
   }
-  await DB.prepare("DELETE FROM inspection_photos WHERE id = ?").bind(photoId).run();
+  const del = DB.prepare("DELETE FROM inspection_photos WHERE id = ?").bind(photoId);
+  if (row.completed_at) {
+    await DB.batch([
+      del,
+      auditStatement(
+        user,
+        { action: "inspection.photo_deleted_later", entityType: "inspection", entityId: row.inspection_id, rentalId: row.rental_id, summary: `Deleted a photo that was added later to the ${row.type} inspection` },
+        "SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM inspection_photos WHERE id = ?1)",
+        photoId,
+      ),
+    ]);
+  } else {
+    await del.run();
+  }
   await PHOTOS.delete(row.r2_key);
   return { ok: true };
 }
 
-export async function addAddendum(inspectionId: string, note: string, userId: string): Promise<Result> {
+export async function addAddendum(inspectionId: string, note: string, user: { id: string; name: string }): Promise<Result> {
   const text = note.trim();
   if (text.length < 3) return { error: "Write a short note" };
   if (text.length > 1000) return { error: "Note is too long" };
   const insp = await getInspectionById(inspectionId);
   if (!insp?.completed_at) return { error: "Addendum notes are for completed inspections" };
-  await env()
-    .DB.prepare("INSERT INTO inspection_addenda (id,inspection_id,note,created_by,created_at) VALUES (?,?,?,?,?)")
-    .bind(crypto.randomUUID(), inspectionId, text, userId, new Date().toISOString())
-    .run();
+  const db = env().DB;
+  const id = crypto.randomUUID();
+  await db.batch([
+    db.prepare("INSERT INTO inspection_addenda (id,inspection_id,note,created_by,created_at) VALUES (?,?,?,?,?)").bind(id, inspectionId, text, user.id, new Date().toISOString()),
+    auditStatement(
+      user,
+      {
+        action: "inspection.addendum_added",
+        entityType: "inspection",
+        entityId: inspectionId,
+        rentalId: insp.rental_id,
+        summary: `Added a correction note to the ${insp.type} inspection: "${text.length > 160 ? text.slice(0, 160) + "…" : text}"`,
+      },
+      "SELECT 1 FROM inspection_addenda WHERE id = ?1",
+      id,
+    ),
+  ]);
   return { ok: true };
 }
 
@@ -215,7 +256,7 @@ export async function addAddendum(inspectionId: string, note: string, userId: st
  * atomic batch, so a rental can never change status without its inspection.
  * An admin with a written reason can complete without the minimum photo.
  */
-export async function completeInspection(id: string, v: Readings, user: { id: string; role: "admin" | "staff" }): Promise<Result> {
+export async function completeInspection(id: string, v: Readings, user: Actor): Promise<Result> {
   const db = env().DB;
   const insp = await getInspectionById(id);
   if (!insp) return { error: "Inspection not found" };
@@ -248,6 +289,15 @@ export async function completeInspection(id: string, v: Readings, user: { id: st
       ? db.prepare("UPDATE rentals SET status='active', actual_pickup_at=?2, updated_at=?2 WHERE id=?1 AND status='booked' AND EXISTS (SELECT 1 FROM inspections WHERE id=?3 AND completed_at=?2)").bind(rental.id, now, id)
       : db.prepare("UPDATE rentals SET status='returned', actual_return_at=?2, updated_at=?2 WHERE id=?1 AND status='active' AND EXISTS (SELECT 1 FROM inspections WHERE id=?3 AND completed_at=?2)").bind(rental.id, now, id);
 
+  const label = TYPE_LABEL[insp.type].toLowerCase();
+  const changes: AuditChange[] = [
+    { field: "Odometer", from: null, to: `${v.odometer_km} km` },
+    { field: "Fuel", from: null, to: fuelLabel(v.fuel_eighths) },
+    { field: "Photos", from: null, to: String(photos.length) },
+    { field: "Rental status", from: insp.type === "pickup" ? "Booked" : "Out now", to: insp.type === "pickup" ? "Out now" : "Returned" },
+    ...(v.notes ? [{ field: "Notes", from: null, to: v.notes }] : []),
+    ...(override ? [{ field: "Completed without a photo (admin)", from: null, to: v.override_reason }] : []),
+  ];
   const results = await db.batch([
     db
       .prepare(
@@ -261,6 +311,20 @@ export async function completeInspection(id: string, v: Readings, user: { id: st
     db
       .prepare("UPDATE vehicles SET odometer_km = MAX(odometer_km, ?2), updated_at = ?3 WHERE id = ?1 AND EXISTS (SELECT 1 FROM inspections WHERE id = ?4 AND completed_at = ?3)")
       .bind(rental.vehicle_id, v.odometer_km, now, id),
+    auditStatement(
+      user,
+      {
+        action: "inspection.completed",
+        entityType: "inspection",
+        entityId: id,
+        rentalId: rental.id,
+        summary: `Completed the ${label} inspection (${v.odometer_km} km, fuel ${fuelLabel(v.fuel_eighths)}, ${photos.length} photo${photos.length === 1 ? "" : "s"}); rental is now ${insp.type === "pickup" ? "out" : "returned"}${override ? ". Completed without a photo by an admin" : ""}`,
+        changes,
+      },
+      "SELECT 1 FROM inspections WHERE id = ?1 AND completed_at = ?2",
+      id,
+      now,
+    ),
   ]);
   if (!results[0].meta.changes) return { error: "Couldn't complete: the rental or the photos changed. Reload and try again." };
   return { ok: true };

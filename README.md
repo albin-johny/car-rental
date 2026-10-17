@@ -12,8 +12,8 @@ Mobile-first PWA for managing one car-rental business (up to ~50 vehicles, ~3 ac
 | 1 | Foundation: auth, roles, vehicles, vehicle photos, PWA shell | ✅ Built and deployed |
 | 2a | Customers, rentals, no-double-booking, fleet status board | ✅ Built and tested |
 | 2b | Pickup / return inspections with photos | ✅ Built and tested |
-| 3 | Income report per car, dashboard | 🔶 Built, awaiting review |
-| 4 | Backups + restore test, tests, staff management, handover | ⬜ |
+| 3 | Income report per car, dashboard | ✅ Built and tested |
+| 4 | Audit log, staff management, tests, restore guide, handover | 🔶 Built, awaiting review |
 | 5 | Maintenance, expenses, reminders (optional, after launch) | ⬜ |
 
 ---
@@ -40,6 +40,8 @@ There is no customer-facing portal and no customer login.
 - Rental statuses: `booked → active (picked up) → returned`, and `cancelled` (from booked only).
 - Inspections (Phase 2b) have **photos**, kept for **1 year**, then the images are deleted automatically. The inspection record (odometer, fuel, notes) is kept forever.
 - **At least one photo is required** at pickup and return; an **admin may override with a written reason**. A rental becomes `active` only by completing its pickup inspection, and `returned` only by completing its return inspection. The admin override waives the **photo only**; odometer and fuel are always required.
+- **Backups: Cloudflare D1 Time Travel only** (automatic, restore to any minute in the last 30 days). No scheduled email export. The restore steps were tested on a throwaway database; see [docs/OPERATIONS.md](docs/OPERATIONS.md).
+- **Audit log covers rentals and inspections only.**
 - Responsive PWA, installable; **no offline editing**. Nothing private is cached by the service worker.
 - Roles: `admin` and `staff` only.
 - `robots.txt` / `noindex` is not security. Every page and API route checks the session itself.
@@ -99,20 +101,28 @@ No schema change: reports read the existing rentals.
 - **"How this is calculated"** is printed on the report page (definitions below).
 - **Reconciliation:** the report total equals the sum of the rentals in the drill-down; this is checked against known data, including IST/UTC day boundaries, financial-year flips and exact 24-hour rounding.
 
+## Phase 4 (built, in review)
+
+Migration `0007`.
+
+- **Audit log** (Account → Audit log, admin only): who created, edited or cancelled a rental; who completed an inspection (with readings, photo count, status change and any admin-override reason); photos added or deleted later; correction notes. Each entry shows what changed (before → after). Filters: type, person, dates; per-rental history from the rental page. **Written in the same database batch as the change** (an entry exists only if the change really happened, and a change can't be saved without its entry) and **append-only** (database triggers refuse any update or delete). Edits that change nothing, rejected bookings, draft photo uploads and refused actions are not logged.
+- **Staff management** (Account → Staff, admin only): add a person (name, username, role, temporary password with a *Generate* button), reset a password (signs them out everywhere), disable / enable (signs them out; they can't sign in), make staff or admin. **Admins can create other admins.** Users are never deleted. You can't disable yourself or change your own role, and the **last active admin can never be disabled or demoted** (enforced inside the database statement, so two admins can't lock each other out simultaneously).
+- **Change own password** (Account): needs the current password, signs out the person's other devices, keeps this one.
+- **Disabled accounts** are refused at sign-in (Better Auth `session.create.before` hook) and treated as signed out on every request.
+- **Login rate limiting now keys on `cf-connecting-ip`** (set by Cloudflare, not forgeable), so lockouts apply per person instead of one shared bucket.
+- **Automated tests** (`npm test`, 65 tests, about 15 seconds): periods and IST/UTC boundaries, money, back-link safety, booking and the no-double-booking race, the inspection rules, income reports and their reconciliation, the audit log (atomic, append-only, paging) and staff rules (including the last-admin race and real sign-in refusal). Each test file gets a throwaway local database built from the real migrations.
+- **Restore guide:** [docs/OPERATIONS.md](docs/OPERATIONS.md) is the plain-language owner/admin guide (daily use, staff, audit log, restoring with Time Travel, lockout recovery, secrets, handover). Restore was tested on a throwaway D1 database: data deleted, restored from a bookmark, all rows back.
+
 ## Roadmap
 
 Review every diff and run the checks before merging. Never edit an applied migration; add a new numbered file.
 
-### Phase 4: quality, safety, handover
-- [ ] `audit_logs` (who, when, entity, action, before/after) for vehicles, rentals, inspections and user changes, with an admin-only viewer
-- [ ] Admin screen to create/disable staff users and reset passwords (replaces the script)
-- [ ] Rate limiting on uploads (login is already rate-limited)
-- [ ] Scheduled D1 export to R2 under `backups/` (Cron Trigger); D1 Time Travel as first recovery step
-- [ ] **Full restore test** into a fresh D1 database, with the steps written down
-- [ ] Tests: concurrent booking, IST/UTC boundaries, role checks, failed/retried uploads, slow networks
-- [ ] Manual pass on a real phone, a tablet and a desktop
+### Phase 4: remaining before handover
+- [ ] Manual pass on a real phone, a tablet and a desktop (camera and gallery photo flow, photo viewer swipe, chips, install to home screen, Safari)
 - [ ] Import the real fleet data and verify it
-- [ ] Handover: customer owns the Cloudflare account, GitHub repo and domain; rotate tokens and secrets; written operating guide
+- [ ] Billing / usage alert and the 365-day `inspections/` lifecycle rule set in Cloudflare
+- [ ] Optional: rate limiting on photo uploads (3 trusted staff, so low priority)
+- [ ] Hand ownership to the customer (Cloudflare account, GitHub, domain); rotate the secret; remove developer access
 
 ### Phase 5: optional, after launch
 - [ ] Maintenance records, expiry reminders, expenses per vehicle, printable PDF reports
@@ -121,8 +131,7 @@ Review every diff and run the checks before merging. Never edit an applied migra
 
 ## Data model
 
-Existing: auth tables (Better Auth), `vehicles`, `vehicle_photos`, `customers`, `rentals`, `inspections`, `inspection_photos`, `inspection_addenda`.
-Planned: `audit_logs`.
+Auth tables (Better Auth; `user` has `role` and `disabled`), `vehicles`, `vehicle_photos`, `customers`, `rentals`, `inspections`, `inspection_photos`, `inspection_addenda`, `audit_logs` (append-only).
 
 Rules for every table: integer paise for money, UTC ISO timestamps, foreign keys on, `CHECK` constraints on amounts and statuses, unique constraints (registration number, rental number, customer phone + name), and indexes for the common searches.
 
@@ -217,12 +226,15 @@ and its schema changes, check `npx @better-auth/cli generate` against `migration
 - `src/app` – pages (`/fleet`, `/reports`, `/reports/[id]`, `/rentals`, `/rentals/new`, `/rentals/[id]`, `/rentals/[id]/inspect/[type]`, `/customers`, `/customers/[id]`, `/vehicles`, `/vehicles/new`, `/vehicles/[id]`, `/account`, `/login`), server actions, API routes (`/api/auth/*`, `/api/customers`, `/api/vehicles/[id]/photos`, `/api/photos/[id]`, `/api/inspections/[id]/photos`, `/api/inspection-photos/[id]`)
 - `src/components` – bottom nav, vehicle / rental / customer forms, photo manager, install button
 - `src/lib` – auth, session guards, vehicle, customer and rental queries + validation, money and IST time helpers, client-side image compression
+- `tests/` – automated tests (`npm test`)
+- `docs/OPERATIONS.md` – owner/admin guide
 - `migrations/` – D1 schema · `scripts/create-user.mjs` – prints SQL to create a user
 
 ## Notes
 
 - After changing bindings in `wrangler.jsonc`, run `npm run cf-typegen`.
 - Every page and API route checks the session itself (there is no middleware gate). Add the same check to any new route.
-- Login attempts are rate-limited (stored in D1).
+- Login attempts are rate-limited per client address (`cf-connecting-ip`), stored in D1.
+- Run `npm test` before deploying. It needs no Cloudflare login: it builds a temporary local database from the migrations.
 - **Back arrows return to the exact previous screen**, including its filter and search. Every list/detail link carries the current address as `?back=` (`src/lib/nav.ts`: `selfUrl`, `withBack`, `safeBack`), so the chain survives several levels. New links to a detail screen must pass `withBack(href, here)`; `safeBack` only accepts in-app paths.
 - Do not commit `.dev.vars`, API tokens, or `admin.sql`.

@@ -18,10 +18,25 @@ export function getAuth() {
     user: {
       additionalFields: {
         role: { type: "string", required: false, defaultValue: "staff", input: false },
+        disabled: { type: "number", required: false, defaultValue: 0, input: false },
       },
     },
     rateLimit: { enabled: true, storage: "database" },
+    // On Cloudflare the client address is in cf-connecting-ip (set by Cloudflare, not forgeable by the client),
+    // so login rate limits apply per person instead of one shared bucket.
+    advanced: { ipAddress: { ipAddressHeaders: ["cf-connecting-ip"] } },
     session: { expiresIn: 60 * 60 * 24 * 30, cookieCache: { enabled: false } },
+    databaseHooks: {
+      session: {
+        create: {
+          // A disabled account can't start a session (existing sessions are deleted when it is disabled).
+          before: async (session) => {
+            const u = await e.DB.prepare(`SELECT disabled FROM "user" WHERE id = ?`).bind(session.userId).first<{ disabled: number }>();
+            if (u?.disabled) return false;
+          },
+        },
+      },
+    },
     plugins: [username({ minUsernameLength: 3 }), nextCookies()],
   });
 }

@@ -12,13 +12,14 @@ import { StatusBadge } from "@/components/rental-card";
 import { RentalActions } from "@/components/rental-actions";
 import { InspectionCompare } from "@/components/inspection-compare";
 import { getRentalInspections } from "@/lib/inspections";
+import { countAuditForRental } from "@/lib/audit";
 import { RentalForm } from "@/components/rental-form";
 import { updateRentalAction } from "../actions";
 
 export const metadata = { title: "Rental" };
 
 export default async function RentalPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ back?: string }> }) {
-  await requireUser();
+  const me = await requireUser();
   const { id } = await params;
   const rawBack = (await searchParams).back;
   const back = safeBack(rawBack, "/rentals");
@@ -26,6 +27,7 @@ export default async function RentalPage({ params, searchParams }: { params: Pro
   const r = await getRentalDetail(id);
   if (!r) notFound();
   const insp = await getRentalInspections(id);
+  const historyCount = me.role === "admin" ? await countAuditForRental(id) : 0;
   const editable = r.status === "booked" || r.status === "active";
   const vehicles = editable ? await listVehicles({ status: "active" }) : [];
   const options = vehicles.map((v) => ({ id: v.id, label: `${v.make} ${v.model} · ${v.registration_number}`, rate_paise: v.daily_rate_paise }));
@@ -52,6 +54,12 @@ export default async function RentalPage({ params, searchParams }: { params: Pro
       </dl>
 
       <RentalActions id={r.id} back={here} status={r.status} draft={!!(r.status === "booked" ? insp.pickup : insp.return) && !(r.status === "booked" ? insp.pickup?.completed_at : insp.return?.completed_at)} />
+
+      {me.role === "admin" && (
+        <Link href={withBack(`/account/audit?rental=${r.id}`, here)} className="flex items-center justify-between rounded-2xl bg-white px-4 py-3 text-sm shadow-sm ring-1 ring-slate-200 active:bg-slate-50">
+          <span>Change history</span><span className="text-slate-500">{historyCount} {historyCount === 1 ? "entry" : "entries"} ›</span>
+        </Link>
+      )}
 
       <InspectionCompare rentalId={r.id} back={here} pickup={insp.pickup} ret={insp.return} />
       {r.status !== "booked" && !insp.pickup && r.status !== "cancelled" && (

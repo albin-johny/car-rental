@@ -20,7 +20,7 @@ export default function LoginPage() {
       ? await authClient.signIn.email({ email: id, password })
       : await authClient.signIn.username({ username: id, password });
     if (error) {
-      setError("Invalid email or password");
+      setError("Could not sign in. Check your username and password, or ask an admin if your account was disabled.");
       setBusy(false);
       return;
     }
