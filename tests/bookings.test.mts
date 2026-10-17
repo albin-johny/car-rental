@@ -84,10 +84,10 @@ test("cancel only from booked, and it frees the slot", async () => {
 });
 
 test("history can be back-entered as already out or completed, and still can't overlap", async () => {
-  const done = await mk({ vehicle_id: "v2", start_at: "2024-03-01T10:00", end_at: "2024-03-04T10:00", record_as: "returned" });
+  const done = await mk({ vehicle_id: "v2", start_at: "2024-03-01T10:00", end_at: "2024-03-04T10:00", record_as: "returned", start_km: "9000", end_km: "9300" });
   assert.equal(await status(done.id), "returned");
   assert.match(String((await mk({ vehicle_id: "v2", start_at: "2024-03-02T10:00", end_at: "2024-03-03T10:00" })).error), /already booked/);
-  const out = await mk({ vehicle_id: "v2", start_at: "2024-06-01T10:00", end_at: "2024-06-04T10:00", record_as: "active" });
+  const out = await mk({ vehicle_id: "v2", start_at: "2024-06-01T10:00", end_at: "2024-06-04T10:00", record_as: "active", start_km: "9400" });
   assert.equal(await status(out.id), "active");
 });
 
@@ -108,4 +108,74 @@ test("stats, fleet board and search", async () => {
   assert.ok((await listRentals({ q: "9123" })).length > 0, "phone search");
   assert.equal((await listRentals({ q: "%" })).length, 0, "wildcards are matched literally");
   assert.ok((await listRentals({ tab: "past" })).every((r) => r.status === "returned"));
+});
+
+// ---------------------------------------------------------------------------------------------------------
+// odometer (km) on the rental
+
+const kmOf = async (id: string) => (await DB.prepare("SELECT start_km s, end_km e, status st FROM rentals WHERE id=?").bind(id).first()) as { s: number | null; e: number | null; st: string };
+const carKm = async (v: string) => ((await DB.prepare("SELECT odometer_km o FROM vehicles WHERE id=?").bind(v).first()) as { o: number }).o;
+
+test("an upcoming booking can leave the starting km blank; one typed is stored", async () => {
+  const blank = await mk({ vehicle_id: "v1", start_at: "2040-01-01T10:00", end_at: "2040-01-02T10:00" });
+  assert.deepEqual(await kmOf(blank.id), { s: null, e: null, st: "booked" });
+  const typed = await mk({ vehicle_id: "v1", start_at: "2040-02-01T10:00", end_at: "2040-02-02T10:00", start_km: "10,250" });
+  assert.deepEqual(await kmOf(typed.id), { s: 10250, e: null, st: "booked" });
+  assert.equal(await carKm("v1"), 10000, "a booking doesn't touch the car's odometer");
+});
+
+test("a rental entered as already out needs the starting km, stores it and raises the car's odometer", async () => {
+  assert.ok(!rentalSchema.safeParse({ customer_name: "A", customer_phone: "9876543210", vehicle_id: "v1", start_at: "2024-01-01T10:00", end_at: "2024-01-02T10:00", total: "1", record_as: "active" }).success, "no start km");
+  const r = await mk({ vehicle_id: "v2", start_at: "2025-01-01T10:00", end_at: "2025-01-03T10:00", record_as: "active", start_km: "12000" });
+  assert.deepEqual(await kmOf(r.id), { s: 12000, e: null, st: "active" });
+  assert.equal(await carKm("v2"), 12000);
+});
+
+test("a completed rental needs both readings, end >= start, and stores them", async () => {
+  const base = { customer_name: "A", customer_phone: "9876543210", vehicle_id: "v1", start_at: "2024-05-01T10:00", end_at: "2024-05-02T10:00", total: "1", record_as: "returned" };
+  assert.ok(!rentalSchema.safeParse({ ...base, start_km: "100" }).success, "no end km");
+  assert.ok(!rentalSchema.safeParse({ ...base, end_km: "200" }).success, "no start km");
+  const low = rentalSchema.safeParse({ ...base, start_km: "300", end_km: "200" });
+  assert.ok(!low.success && low.error.issues.some((i) => i.message.includes("lower than the starting")));
+  assert.ok(!rentalSchema.safeParse({ ...base, start_km: "1.5", end_km: "9" }).success, "whole km only");
+  assert.ok(!rentalSchema.safeParse({ ...base, start_km: "9999999", end_km: "99999999" }).success, "too large");
+  const r = await mk({ vehicle_id: "v2", start_at: "2024-05-01T10:00", end_at: "2024-05-02T10:00", record_as: "returned", start_km: "12100", end_km: "12450" });
+  assert.deepEqual(await kmOf(r.id), { s: 12100, e: 12450, st: "returned" });
+  assert.equal(await carKm("v2"), 12450, "the car's odometer follows the end reading");
+});
+
+test("a back-entered rental with a lower reading never lowers the car's odometer", async () => {
+  const before = await carKm("v2");
+  await mk({ vehicle_id: "v2", start_at: "2023-05-01T10:00", end_at: "2023-05-02T10:00", record_as: "returned", start_km: "100", end_km: "400" });
+  assert.equal(await carKm("v2"), before);
+});
+
+test("the creation entry in the audit log mentions the km", async () => {
+  const r = await mk({ vehicle_id: "v2", start_at: "2022-05-01T10:00", end_at: "2022-05-02T10:00", record_as: "returned", start_km: "5000", end_km: "5300" });
+  const log = (await DB.prepare("SELECT summary FROM audit_logs WHERE entity_id = ? AND action = 'rental.created'").bind(r.id).first()) as { summary: string };
+  assert.match(log.summary, /5,000 km to 5,300 km/);
+});
+
+test("editing an upcoming booking can set the starting km (and it is audited); an active rental keeps its reading", async () => {
+  const r = await mk({ vehicle_id: "v1", start_at: "2042-01-01T10:00", end_at: "2042-01-02T10:00" });
+  assert.ok("ok" in (await updateRental(r.id, await rentalInput({ vehicle_id: "v1", start_at: "2042-01-01T10:00", end_at: "2042-01-02T10:00", start_km: "10300" }), staff)));
+  assert.equal((await kmOf(r.id)).s, 10300);
+  const log = (await DB.prepare("SELECT changes FROM audit_logs WHERE entity_id = ? AND action = 'rental.updated'").bind(r.id).first()) as { changes: string };
+  assert.ok(JSON.parse(log.changes).some((c: { field: string; to: string }) => c.field === "Starting km" && c.to === "10,300 km"));
+  // an active rental ignores a changed starting km (the car is already out; the reading is fixed)
+  const act = await mk({ vehicle_id: "v2", start_at: "2025-03-01T10:00", end_at: "2025-03-02T10:00", record_as: "active", start_km: "13000" });
+  assert.ok("ok" in (await updateRental(act.id, await rentalInput({ vehicle_id: "v2", start_at: "2025-03-01T10:00", end_at: "2025-03-03T10:00", start_km: "99999" }), staff)));
+  assert.equal((await kmOf(act.id)).s, 13000);
+});
+
+test("already out must have started by now; completed must have ended by now", () => {
+  const ist = (days: number) => new Date(Date.now() + 330 * 60_000 + days * 86_400_000).toISOString().slice(0, 16);
+  const base = { customer_name: "A", customer_phone: "9876543210", vehicle_id: "v1", total: "1", start_km: "100" };
+  const future = rentalSchema.safeParse({ ...base, start_at: ist(3), end_at: ist(5), record_as: "active" });
+  assert.ok(!future.success && future.error.issues.some((i) => i.message.includes("must have started by now")));
+  const notEnded = rentalSchema.safeParse({ ...base, start_at: ist(-3), end_at: ist(2), record_as: "returned", end_km: "200" });
+  assert.ok(!notEnded.success && notEnded.error.issues.some((i) => i.message.includes("must have ended by now")));
+  assert.ok(rentalSchema.safeParse({ ...base, start_at: ist(-3), end_at: ist(2), record_as: "active" }).success, "an out car may be due back in the future");
+  assert.ok(rentalSchema.safeParse({ ...base, start_at: ist(3), end_at: ist(5), record_as: "booked" }).success, "a booking can be in the future");
+  assert.ok(rentalSchema.safeParse({ ...base, start_at: ist(-5), end_at: ist(-3), record_as: "returned", end_km: "200" }).success, "a past rental");
 });

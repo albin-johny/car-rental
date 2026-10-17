@@ -50,6 +50,7 @@ out.push(`DELETE FROM inspections WHERE vehicle_id LIKE 'demo-%' OR rental_id LI
 out.push(`DELETE FROM rentals WHERE vehicle_id LIKE 'demo-%' OR id LIKE 'demo-%';`);
 out.push(`DELETE FROM service_record_items WHERE record_id IN (SELECT id FROM service_records WHERE vehicle_id LIKE 'demo-%');`);
 out.push(`DELETE FROM service_records WHERE vehicle_id LIKE 'demo-%';`);
+out.push(`DELETE FROM vehicle_documents WHERE vehicle_id LIKE 'demo-%';`);
 out.push(`DELETE FROM vehicle_photos WHERE vehicle_id LIKE 'demo-%';`);
 out.push(`DELETE FROM customers WHERE id LIKE 'demo-%' AND NOT EXISTS (SELECT 1 FROM rentals WHERE customer_id = customers.id);`);
 out.push(`DELETE FROM vehicles WHERE id LIKE 'demo-%';`);
@@ -142,9 +143,10 @@ for (const r of rentals.filter((x) => x.status === "active" || x.status === "ret
      VALUES (${q(`demo-i${String(++insN).padStart(3, "0")}`)}, ${q(`demo-r${String(i + 1).padStart(3, "0")}`)}, ${q(r.v.id)}, ${q(type)}, ${q(iso(at))}, ${odo}, ${fuel}, ${q(note)},
        (SELECT id FROM "user" ORDER BY createdAt LIMIT 1), 'Demo data (no photos)', (SELECT id FROM "user" ORDER BY createdAt LIMIT 1), ${q(iso(at))}, ${q(iso(at))}, ${q(iso(at))});`;
   const idx = rentals.indexOf(r);
-  if (r.status === "returned" && rnd() < 0.3) { running.set(r.v.id, odoReturn); continue; } // some history has no inspection
+  if (r.status === "returned" && rnd() < 0.3) { running.set(r.v.id, odoReturn); out.push(`UPDATE rentals SET start_km = ${odoPickup}, end_km = ${odoReturn} WHERE id = ${q(`demo-r${String(idx + 1).padStart(3, "0")}`)};`); continue; } // some history has no inspection
   out.push(row("pickup", r.pickup ?? r.s, odoPickup, fuelOut, pick(conditions), idx));
   if (r.status === "returned") out.push(row("return", r.ret ?? r.e, odoReturn, fuelBack, pick(conditions), idx));
+  out.push(`UPDATE rentals SET start_km = ${odoPickup}${r.status === "returned" ? `, end_km = ${odoReturn}` : ""} WHERE id = ${q(`demo-r${String(idx + 1).padStart(3, "0")}`)};`);
   running.set(r.v.id, odoReturn);
 }
 for (const v of vehicles) out.push(`UPDATE vehicles SET odometer_km = ${running.get(v.id)} WHERE id = ${q(v.id)};`);
@@ -176,6 +178,19 @@ for (const v of live) {
     const created = iso(now + dayOffset * D);
     out.push(`INSERT INTO service_records (id,vehicle_id,serviced_on,odometer_km,notes,cost_paise,created_by,created_at,updated_at) VALUES (${q(id)},${q(v.id)},${q(on)},${km},${q(pick(serviceNotes))},${rnd() < 0.8 ? int(5, 260) * 10000 : "NULL"},(SELECT id FROM "user" ORDER BY createdAt LIMIT 1),${q(created)},${q(created)});`);
     for (const n of names) out.push(`INSERT OR IGNORE INTO service_record_items (record_id,item_id) SELECT ${q(id)}, id FROM service_items WHERE name_key = ${q(n.toLowerCase())};`);
+  }
+}
+
+// vehicle papers: mostly valid, a few expiring soon, a few expired, a couple missing; files are added by seed-demo-photos
+let docN = 0;
+for (const [vi, v] of vehicles.entries()) {
+  for (const [ti, type] of ["insurance", "puc", "registration"].entries()) {
+    if ((vi + ti) % 11 === 0) continue; // missing
+    const r = (vi * 3 + ti) % 7;
+    const days = r === 0 ? -int(3, 60) : r === 1 ? int(2, 28) : int(45, 700);
+    const until = new Date(now + days * D + IST).toISOString().slice(0, 10);
+    const created = iso(now - int(30, 300) * D);
+    out.push(`INSERT INTO vehicle_documents (id,vehicle_id,doc_type,valid_until,created_by,created_at,updated_at) VALUES (${q(`demo-d${String(++docN).padStart(3, "0")}`)},${q(v.id)},${q(type)},${q(until)},(SELECT id FROM "user" ORDER BY createdAt LIMIT 1),${q(created)},${q(created)});`);
   }
 }
 console.log(out.join("\n"));

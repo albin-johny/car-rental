@@ -15,9 +15,11 @@ export default async function NewVehiclePage({ searchParams }: { searchParams: P
       <VehicleForm
         action={createVehicleAction.bind(null, back)}
         submitLabel="Add vehicle"
+        withDocuments
+        back={back}
         initial={{ year: String(new Date().getFullYear()), fuel_type: "petrol", transmission: "manual", seats: "5", odometer_km: "0", deposit_paise: "0" }}
       />
-      <p className="text-sm text-slate-500">You can add photos after saving.</p>
+      <p className="text-sm text-slate-500">You can add the car's photos after saving.</p>
     </div>
   );
 }

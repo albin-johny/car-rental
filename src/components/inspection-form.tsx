@@ -9,20 +9,25 @@ import type { FormState } from "@/app/vehicles/actions";
 type Action = (prev: FormState, fd: FormData) => Promise<FormState>;
 
 export function InspectionForm({
-  action, inspectionId, photoIds, initial, isAdmin, lastOdometer,
+  action, inspectionId, photoIds, initial, isAdmin, lastOdometer, carKm, type, defaultAt, recordOnly,
 }: {
   action: Action;
   inspectionId: string;
   photoIds: string[]; // in the saved order
   initial: { odometer_km: number; fuel_eighths: number; notes: string };
   isAdmin: boolean;
-  lastOdometer: number | null; // pickup reading when doing a return, for a sanity hint
+  lastOdometer: number | null; // reading at pickup when doing a return: a lower reading is refused
+  carKm: number | null; // the car's last known reading when doing a pickup: a lower reading is probably a typo
+  type: "pickup" | "return";
+  defaultAt: string; // now, in India time, as a datetime-local value
+  recordOnly: "out" | "returned" | null; // the rental is already past this step: only the record is added, its status is not changed
 }) {
   const router = useRouter();
   const [state, formAction, pending] = useActionState(action, null);
   const [odo, setOdo] = useState(String(initial.odometer_km));
   const [fuel, setFuel] = useState(initial.fuel_eighths);
   const [notes, setNotes] = useState(initial.notes);
+  const [at, setAt] = useState(defaultAt);
   const [reason, setReason] = useState("");
   const [order, setOrder] = useState(photoIds);
   const [progress, setProgress] = useState("");
@@ -77,11 +82,26 @@ export function InspectionForm({
       <div className="space-y-6 lg:grid lg:grid-cols-[minmax(0,26rem)_1fr] lg:items-start lg:gap-8 lg:space-y-0">
       <section className="space-y-3">
         <h2 className="font-semibold">Readings</h2>
+        {recordOnly && (
+          <p className="rounded-xl bg-blue-50 px-3 py-2 text-sm text-blue-800">
+            This rental is already {recordOnly}. Adding the {type} photos and readings now records them and won&apos;t change its status.
+          </p>
+        )}
+        <div>
+          <label className="label" htmlFor="at">When did the {type} happen? (IST)</label>
+          <input id="at" name="at" type="datetime-local" value={at} max={defaultAt} onChange={(e) => setAt(e.target.value)} required className="input" />
+          {err.at && <p className="err">{err.at}</p>}
+          <p className="mt-1 text-xs text-slate-500">Now, unless you are recording it afterwards. Then set the time it really happened.</p>
+        </div>
         <div>
           <label className="label" htmlFor="odometer_km">Odometer (km)</label>
           <input id="odometer_km" name="odometer_km" value={odo} onChange={(e) => setOdo(e.target.value)} inputMode="numeric" required className="input" />
           {err.odometer_km && <p className="err">{err.odometer_km}</p>}
-          {lastOdometer !== null && <p className="mt-1 text-sm text-slate-500">At pickup: {lastOdometer} km</p>}
+          {lastOdometer !== null && <p className="mt-1 text-sm text-slate-500">At pickup: {new Intl.NumberFormat("en-IN").format(lastOdometer)} km</p>}
+          {lastOdometer !== null && odo.trim() !== "" && Number(odo) < lastOdometer && <p className="mt-1 text-sm font-medium text-red-600">Can't be lower than at pickup ({new Intl.NumberFormat("en-IN").format(lastOdometer)} km).</p>}
+          {lastOdometer === null && carKm !== null && odo.trim() !== "" && Number(odo) < carKm && (
+            <p className="mt-1 text-sm text-amber-700">Lower than the car&apos;s last reading ({new Intl.NumberFormat("en-IN").format(carKm)} km). Check it before completing.</p>
+          )}
         </div>
         <div>
           <label className="label" htmlFor="fuel_eighths">Fuel: <b>{fuelLabel(fuel)}</b></label>

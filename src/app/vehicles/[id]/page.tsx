@@ -21,6 +21,10 @@ import { VehicleForm } from "@/components/vehicle-form";
 import { PhotoManager } from "@/components/photo-manager";
 import { ActiveToggle } from "@/components/active-toggle";
 import { updateVehicleAction } from "../actions";
+import { VehicleDocuments } from "@/components/vehicle-documents";
+import { listVehicleDocuments, currentDocuments } from "@/lib/vehicle-docs";
+import { DOC_SHORT, DOC_TYPES, STATUS_STYLE, docStatus } from "@/lib/vehicle-docs-shared";
+import { addDocumentAction, deleteDocumentAction, updateDocumentAction } from "../doc-actions";
 
 export const metadata = { title: "Edit vehicle" };
 
@@ -34,7 +38,9 @@ export default async function VehiclePage({ params, searchParams }: { params: Pr
   const here = selfUrl(`/vehicles/${id}`, { back: rawBack });
   const v = await getVehicle(id);
   if (!v) notFound();
-  const [photos, rentals, life, service, lastDone, lastService, spend] = await Promise.all([listPhotos(id), listRentals({ vehicleId: id, tab: "all", limit: 3 }), lifetimeIncome(id), listServiceHistory(id), lastDoneForVehicle(id), lastServiceSummary(id), serviceSpend(id)]);
+  const [photos, rentals, life, service, lastDone, lastService, spend, docs] = await Promise.all([listPhotos(id), listRentals({ vehicleId: id, tab: "all", limit: 3 }), lifetimeIncome(id), listServiceHistory(id), lastDoneForVehicle(id), lastServiceSummary(id), serviceSpend(id), listVehicleDocuments(id)]);
+  const today = istDateInput(Date.now());
+  const curDocs = currentDocuments(docs);
 
   const initial: Record<string, string> = {
     registration_number: v.registration_number,
@@ -106,6 +112,27 @@ export default async function VehiclePage({ params, searchParams }: { params: Pr
         }
       >
         <PhotoManager vehicleId={id} photos={photos.map((p) => ({ id: p.id }))} max={MAX_PHOTOS} showTitle={false} />
+      </Collapsible>
+      <Collapsible
+        title="Documents"
+        summary={
+          <span className="inline-flex flex-wrap items-center gap-1.5 align-middle">
+            {DOC_TYPES.map((t) => {
+              const c = curDocs[t];
+              const st = c ? docStatus(c.valid_until, today).status : "none";
+              return <span key={t} className={`badge ${c ? STATUS_STYLE[st] : "bg-slate-100 text-slate-500"}`}>{DOC_SHORT[t]}{c ? "" : " —"}</span>;
+            })}
+          </span>
+        }
+      >
+        <VehicleDocuments
+          vehicleId={id}
+          today={today}
+          docs={docs.map((d) => ({ id: d.id, doc_type: d.doc_type, valid_until: d.valid_until, files: d.files.map((f) => ({ id: f.id, content_type: f.content_type })), by: d.created_by_name, canModify: canModifyService(d, user) }))}
+          addAction={addDocumentAction}
+          updateAction={updateDocumentAction}
+          deleteAction={deleteDocumentAction}
+        />
       </Collapsible>
       <Collapsible
         title="Vehicle details"

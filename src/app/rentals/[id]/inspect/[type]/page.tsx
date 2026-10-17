@@ -2,9 +2,10 @@ import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/session";
 import { safeBack } from "@/lib/nav";
 import { getRentalDetail } from "@/lib/rentals";
+import { getVehicle } from "@/lib/vehicles";
 import { getInspection, listAddenda, listInspectionPhotos } from "@/lib/inspections";
 import { INSPECTION_TYPES, TYPE_LABEL, fuelLabel, isLatePhoto, type InspectionType } from "@/lib/inspection-constants";
-import { formatIST } from "@/lib/time";
+import { formatIST, isoToIstInput } from "@/lib/time";
 import { ScreenHeader } from "@/components/screen-header";
 import { InspectionForm } from "@/components/inspection-form";
 import { StartInspectionButton } from "@/components/start-inspection-button";
@@ -28,13 +29,13 @@ export default async function InspectPage({ params, searchParams }: { params: Pr
   const car = `${rental.make} ${rental.model} · ${rental.registration_number}`;
 
   if (!insp) {
-    const eligible = rental.status === (type === "pickup" ? "booked" : "active");
+    const eligible = type === "pickup" ? ["booked", "active", "returned"].includes(rental.status) : ["active", "returned"].includes(rental.status);
     return (
       <div className="space-y-4">
         <ScreenHeader title={title} back={back} />
         <p className="text-sm text-slate-600">{car} · {rental.customer_name}</p>
         {eligible ? (
-          <StartInspectionButton rentalId={id} back={back} type={type} label={`Start ${type} inspection`} />
+          <StartInspectionButton rentalId={id} back={back} type={type} label={rental.status === (type === "pickup" ? "booked" : "active") ? `Start ${type} inspection` : `Add ${type} photos & readings`} />
         ) : (
           <p className="py-8 text-center text-slate-500">No {type} inspection was recorded for this rental.</p>
         )}
@@ -46,6 +47,7 @@ export default async function InspectPage({ params, searchParams }: { params: Pr
 
   if (!insp.completed_at) {
     const pickup = type === "return" ? await getInspection(id, "pickup") : null;
+    const carRow = await getVehicle(rental.vehicle_id);
     return (
       <div className="space-y-4">
         <ScreenHeader title={title} back={back} />
@@ -56,7 +58,11 @@ export default async function InspectPage({ params, searchParams }: { params: Pr
           photoIds={photos.map((p) => p.id)}
           initial={{ odometer_km: insp.odometer_km, fuel_eighths: insp.fuel_eighths, notes: insp.notes ?? "" }}
           isAdmin={user.role === "admin"}
-          lastOdometer={pickup?.completed_at ? pickup.odometer_km : null}
+          lastOdometer={type === "return" ? (pickup?.completed_at ? pickup.odometer_km : rental.start_km) : null}
+          carKm={carRow?.odometer_km ?? null}
+          type={type}
+          defaultAt={isoToIstInput(new Date().toISOString())}
+          recordOnly={rental.status !== (type === "pickup" ? "booked" : "active") ? (rental.status === "active" ? "out" : "returned") : null}
         />
       </div>
     );
@@ -71,7 +77,8 @@ export default async function InspectPage({ params, searchParams }: { params: Pr
       <div className="space-y-5">
       <dl className="divide-y divide-slate-100 card px-4">
         {[
-          ["Completed", formatIST(insp.completed_at)],
+          [type === "pickup" ? "Pickup time" : "Return time", formatIST(insp.inspected_at)],
+          ...(Date.parse(insp.completed_at) - Date.parse(insp.inspected_at) > 5 * 60_000 ? [["Recorded in the app", formatIST(insp.completed_at)]] : []),
           ["By", insp.inspected_by_name],
           ["Odometer", `${insp.odometer_km} km`],
           ["Fuel", fuelLabel(insp.fuel_eighths)],

@@ -11,7 +11,7 @@ import { isLatePhoto } from "../src/lib/inspection-constants.ts";
 before(async () => {
   await seedBasics();
   // One car per test, so a rental left "out" in one test doesn't block the next (that rule is tested on purpose below).
-  for (let n = 1; n <= 10; n++) {
+  for (let n = 1; n <= 24; n++) {
     await DB.prepare(`INSERT INTO vehicles(id,registration_number,make,model,year,fuel_type,transmission,seats,odometer_km,daily_rate_paise,deposit_paise,is_active,created_at,updated_at) VALUES (?1,?1,'Hyundai','i20',2023,'diesel','manual',5,10000,300000,0,1,?2,?2)`).bind(`w${n}`, new Date().toISOString()).run();
   }
 });
@@ -155,4 +155,153 @@ test("odometer and fuel are validated", async () => {
   assert.ok(!readingsSchema.safeParse({ odometer_km: "100", fuel_eighths: "9" }).success);
   assert.ok(!readingsSchema.safeParse({ odometer_km: "abc", fuel_eighths: "3" }).success);
   assert.ok(readingsSchema.safeParse({ odometer_km: "100", fuel_eighths: "8" }).success);
+});
+
+// ---------------------------------------------------------------------------------------------------------
+// the rental carries its own start / end km
+
+const rentalKm = async (id: string) => (await DB.prepare("SELECT start_km s, end_km e FROM rentals WHERE id=?").bind(id).first()) as { s: number | null; e: number | null };
+
+test("completing pickup stores the start km on the rental, and return stores the end km", async () => {
+  const r = await book({ vehicle_id: "w9", start_at: "2033-01-01T10:00", end_at: "2033-01-02T10:00" });
+  assert.deepEqual(await rentalKm(r), { s: null, e: null });
+  const p = await draft(r, "pickup"); await addInspectionPhoto(p, jpeg(), staff);
+  await completeInspection(p, await readings({ odometer_km: "10040" }), staff);
+  assert.deepEqual(await rentalKm(r), { s: 10040, e: null });
+  const ret = await draft(r, "return"); await addInspectionPhoto(ret, jpeg(), staff);
+  await completeInspection(ret, await readings({ odometer_km: "10400" }), staff);
+  assert.deepEqual(await rentalKm(r), { s: 10040, e: 10400 });
+});
+
+test("the pickup reading is confirmed at pickup: it replaces a km typed at booking", async () => {
+  const r = await book({ vehicle_id: "w10", start_at: "2033-02-01T10:00", end_at: "2033-02-02T10:00", start_km: "10100" });
+  assert.equal((await rentalKm(r)).s, 10100);
+  const p = await draft(r, "pickup"); await addInspectionPhoto(p, jpeg(), staff);
+  await completeInspection(p, await readings({ odometer_km: "10180" }), staff);
+  assert.equal((await rentalKm(r)).s, 10180, "the confirmed reading wins");
+});
+
+test("the pickup draft starts from the higher of the car's reading and the km typed at booking", async () => {
+  const higher = await book({ vehicle_id: "w11", start_at: "2033-03-01T10:00", end_at: "2033-03-02T10:00", start_km: "10500" });
+  await draft(higher, "pickup");
+  assert.equal((await getInspection(higher, "pickup"))!.odometer_km, 10500, "staff knew the car had more km");
+  const stale = await book({ vehicle_id: "w12", start_at: "2033-03-01T10:00", end_at: "2033-03-02T10:00", start_km: "5000" });
+  await draft(stale, "pickup");
+  assert.equal((await getInspection(stale, "pickup"))!.odometer_km, 10000, "a stale low km is not used");
+});
+
+test("a rental entered as already out: the return can't be below its starting km", async () => {
+  const r = await book({ vehicle_id: "w13", start_at: "2026-10-15T10:00", end_at: "2026-10-25T10:00", record_as: "active", start_km: "10800" });
+  const ret = await draft(r, "return"); await addInspectionPhoto(ret, jpeg(), staff);
+  assert.equal((await getInspection(r, "return"))!.odometer_km, 10800, "prefilled from the starting km");
+  assert.match(String((await completeInspection(ret, await readings({ odometer_km: "10700" }), staff) as { error: string }).error), /lower than at pickup \(10800 km\)/);
+  assert.ok("ok" in (await completeInspection(ret, await readings({ odometer_km: "11050" }), staff)));
+  assert.deepEqual(await rentalKm(r), { s: 10800, e: 11050 });
+});
+
+// ---------------------------------------------------------------------------------------------------------
+// recording a handover afterwards (the procedure happened first, the system is updated later)
+
+const istNow = (offsetMs = 0) => new Date(Date.now() + 330 * 60_000 + offsetMs).toISOString().slice(0, 16); // datetime-local value in IST
+const rentalRow = async (id: string) => (await DB.prepare("SELECT status, actual_pickup_at ap, actual_return_at ar, start_km sk, end_km ek FROM rentals WHERE id=?").bind(id).first()) as { status: string; ap: string | null; ar: string | null; sk: number | null; ek: number | null };
+const inspRow = async (rental: string, type: string) => (await DB.prepare("SELECT inspected_at, completed_at, odometer_km FROM inspections WHERE rental_id=? AND type=?").bind(rental, type).first()) as { inspected_at: string; completed_at: string; odometer_km: number };
+const hours = (n: number) => n * 3600_000;
+
+test("a rental entered as already out can get its pickup inspection afterwards, without changing its status", async () => {
+  const r = await book({ vehicle_id: "w14", start_at: "2026-10-16T09:00", end_at: "2026-10-30T09:00", record_as: "active", start_km: "10000" });
+  assert.equal((await rentalRow(r)).status, "active");
+  const p = await draft(r, "pickup");
+  assert.equal((await getInspection(r, "pickup"))!.odometer_km, 10000, "prefilled from the rental, not the car's current reading");
+  await addInspectionPhoto(p, jpeg(), staff);
+  const when = istNow(-hours(30));
+  assert.ok("ok" in (await completeInspection(p, await readings({ odometer_km: "10012", at: when }), staff)));
+  const row = await rentalRow(r);
+  assert.equal(row.status, "active", "it was already out");
+  assert.equal(row.sk, 10012, "the confirmed reading replaces the typed one");
+  assert.equal(Math.round((Date.parse(row.ap!) - Date.now()) / hours(1)), -30, "actual pickup time = the time given");
+  const insp = await inspRow(r, "pickup");
+  assert.equal(insp.inspected_at, row.ap, "the inspection carries the real handover time");
+  assert.ok(Date.parse(insp.completed_at) > Date.parse(insp.inspected_at), "while the entry time is when it was recorded");
+});
+
+test("the return of a rental can be recorded afterwards, with the real return time", async () => {
+  const r = await book({ vehicle_id: "w15", start_at: "2026-10-10T09:00", end_at: "2026-10-12T09:00", record_as: "active", start_km: "20000" });
+  const ret = await draft(r, "return");
+  await addInspectionPhoto(ret, jpeg(), staff);
+  const when = istNow(-hours(20));
+  assert.ok("ok" in (await completeInspection(ret, await readings({ odometer_km: "20250", at: when }), staff)));
+  const row = await rentalRow(r);
+  assert.equal(row.status, "returned");
+  assert.equal(Math.round((Date.parse(row.ar!) - Date.now()) / hours(1)), -20, "returned 20 hours ago, not now");
+  assert.deepEqual([row.sk, row.ek], [20000, 20250]);
+});
+
+test("a completed history rental can get both inspections afterwards, status unchanged", async () => {
+  const r = await book({ vehicle_id: "w16", start_at: "2026-09-01T09:00", end_at: "2026-09-03T09:00", record_as: "returned", start_km: "30000", end_km: "30300" });
+  assert.equal((await draft(r, "return").then(() => getInspection(r, "return")))!.odometer_km, 30300, "return prefilled from the end km");
+  const pk = await draft(r, "pickup"); await addInspectionPhoto(pk, jpeg(), staff);
+  assert.ok("ok" in (await completeInspection(pk, await readings({ odometer_km: "30010", at: "2026-09-01T09:30" }), staff)));
+  const rt = (await getInspection(r, "return"))!; await addInspectionPhoto(rt.id, jpeg(1), staff);
+  assert.ok("ok" in (await completeInspection(rt.id, await readings({ odometer_km: "30310", at: "2026-09-03T08:45" }), staff)));
+  const row = await rentalRow(r);
+  assert.deepEqual([row.status, row.sk, row.ek], ["returned", 30010, 30310]);
+});
+
+test("time rules: not in the future, a return can't be before the pickup, a pickup can't be after the return", async () => {
+  const r = await book({ vehicle_id: "w17", start_at: "2026-10-01T09:00", end_at: "2026-10-05T09:00", record_as: "returned", start_km: "5000", end_km: "5100" });
+  const pk = await draft(r, "pickup"); await addInspectionPhoto(pk, jpeg(), staff);
+  assert.match(String((await completeInspection(pk, await readings({ odometer_km: "5001", at: istNow(hours(5)) }), staff) as { error: string }).error), /can't be in the future/);
+  assert.match(String((await completeInspection(pk, await readings({ odometer_km: "5001", at: "2026-10-06T10:00" }), staff) as { error: string }).error), /can't be after the return/);
+  assert.ok("ok" in (await completeInspection(pk, await readings({ odometer_km: "5001", at: "2026-10-01T09:10" }), staff)));
+  const rt = await draft(r, "return"); await addInspectionPhoto(rt, jpeg(), staff);
+  assert.match(String((await completeInspection(rt, await readings({ odometer_km: "5101", at: "2026-09-30T09:00" }), staff) as { error: string }).error), /can't be before the pickup/);
+  assert.ok("ok" in (await completeInspection(rt, await readings({ odometer_km: "5101", at: "2026-10-05T08:30" }), staff)));
+  assert.ok(!(await readingsAt("not a time")).success, "a malformed time is refused");
+});
+const readingsAt = async (at: string) => (await import("../src/lib/inspections.ts")).readingsSchema.safeParse({ odometer_km: "100", fuel_eighths: "3", at });
+
+test("a normal pickup can be backdated, but not to before the car's previous return", async () => {
+  const first = await book({ vehicle_id: "w18", start_at: "2026-10-01T09:00", end_at: "2026-10-03T09:00", record_as: "returned", start_km: "100", end_km: "200" });
+  const second = await book({ vehicle_id: "w18", start_at: "2026-10-17T09:00", end_at: "2026-10-20T09:00" });
+  assert.ok(first);
+  const p = await draft(second, "pickup"); await addInspectionPhoto(p, jpeg(), staff);
+  assert.match(String((await completeInspection(p, await readings({ odometer_km: "210", at: "2026-10-02T10:00" }), staff) as { error: string }).error), /still out on R-\d{4}-\d{4} until/);
+  assert.ok("ok" in (await completeInspection(p, await readings({ odometer_km: "210", at: istNow(-hours(5)) }), staff)));
+  const row = await rentalRow(second);
+  assert.equal(row.status, "active");
+  assert.equal(Math.round((Date.parse(row.ap!) - Date.now()) / hours(1)), -5);
+});
+
+test("which rentals can have an inspection", async () => {
+  const cancelled = await book({ vehicle_id: "w19", start_at: "2036-01-01T10:00", end_at: "2036-01-02T10:00" });
+  const { transitionRental } = await import("../src/lib/rentals.ts");
+  await transitionRental(cancelled, "cancel", staff);
+  assert.match(String(((await startInspection(cancelled, "pickup", staff.id)) as { error: string }).error), /cancelled/);
+  const booked = await book({ vehicle_id: "w20", start_at: "2036-02-01T10:00", end_at: "2036-02-02T10:00" });
+  assert.match(String(((await startInspection(booked, "return", staff.id)) as { error: string }).error), /gone out first/);
+  const out = await book({ vehicle_id: "w21", start_at: "2026-10-15T09:00", end_at: "2026-10-20T09:00", record_as: "active", start_km: "1" });
+  assert.ok("ok" in (await startInspection(out, "pickup", staff.id)));
+  assert.ok("ok" in (await startInspection(out, "return", staff.id)));
+});
+
+test("the audit log says a handover was recorded afterwards, and the real time", async () => {
+  const r = await book({ vehicle_id: "w22", start_at: "2026-10-16T09:00", end_at: "2026-10-30T09:00", record_as: "active", start_km: "700" });
+  const p = await draft(r, "pickup"); await addInspectionPhoto(p, jpeg(), staff);
+  await completeInspection(p, await readings({ odometer_km: "705", at: istNow(-hours(26)) }), staff);
+  const log = (await DB.prepare("SELECT summary, changes FROM audit_logs WHERE action = 'inspection.completed' AND rental_id = ?").bind(r).first()) as { summary: string; changes: string };
+  assert.match(log.summary, /Recorded the pickup inspection afterwards/);
+  assert.match(log.summary, /already out/);
+  const f = JSON.parse(log.changes).map((c: { field: string }) => c.field);
+  assert.ok(f.includes("Pickup time (recorded afterwards)"));
+  assert.ok(!f.includes("Rental status"), "no status change was made");
+});
+
+test("without a time given, the handover is recorded as now (the usual case)", async () => {
+  const r = await book({ vehicle_id: "w23", start_at: "2037-01-01T10:00", end_at: "2037-01-02T10:00" });
+  const p = await draft(r, "pickup"); await addInspectionPhoto(p, jpeg(), staff);
+  assert.ok("ok" in (await completeInspection(p, await readings({ odometer_km: "10100" }), staff)));
+  const row = await rentalRow(r);
+  assert.ok(Math.abs(Date.parse(row.ap!) - Date.now()) < 60_000);
+  const insp = await inspRow(r, "pickup");
+  assert.equal(insp.inspected_at, insp.completed_at);
 });

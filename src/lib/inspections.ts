@@ -4,6 +4,8 @@ import { getRental } from "./rentals";
 import { MAX_PHOTO_BYTES } from "./vehicle-constants";
 import { MAX_INSPECTION_PHOTOS, MIN_PHOTOS, TYPE_LABEL, fuelLabel, type InspectionType } from "./inspection-constants";
 import { auditStatement, type AuditChange } from "./audit";
+import { formatIST, istInputToIso } from "./time";
+import type { RentalStatus } from "./rental-constants";
 
 type Actor = { id: string; name: string; role: "admin" | "staff" };
 
@@ -37,6 +39,17 @@ export const readingsSchema = z.object({
   fuel_eighths: z.coerce.number().int().min(0).max(8),
   notes: z.string().trim().max(1000).optional().transform((v) => v || null),
   override_reason: z.string().trim().max(500).optional().transform((v) => v || null),
+  // When the handover really happened (India time). Blank = now. Lets staff record a pickup / return afterwards.
+  at: z
+    .string()
+    .optional()
+    .transform((v, ctx) => {
+      const t = (v ?? "").trim();
+      if (!t) return null;
+      const iso = istInputToIso(t);
+      if (!iso) ctx.addIssue({ code: "custom", message: "Enter a valid date and time" });
+      return iso;
+    }),
 });
 export type Readings = z.infer<typeof readingsSchema>;
 
@@ -84,7 +97,12 @@ async function carStillOut(vehicleId: string, rentalId: string) {
   return r?.rental_number ?? null;
 }
 
-const NEEDS: Record<InspectionType, "booked" | "active"> = { pickup: "booked", return: "active" };
+// The normal path is booked -> pickup inspection -> out -> return inspection -> returned, and the inspection changes the
+// status. A rental entered as already out / completed (the handover happened first, the paperwork later) can still get
+// its inspection afterwards: "record only", with no status change.
+const TRANSITION: Record<InspectionType, RentalStatus> = { pickup: "booked", return: "active" };
+const ALLOWED: Record<InspectionType, RentalStatus[]> = { pickup: ["booked", "active", "returned"], return: ["active", "returned"] };
+const IN_LIST = (t: InspectionType) => ALLOWED[t].map((s) => `'${s}'`).join(",");
 
 /** Finds or creates the draft inspection for this rental + type. */
 export async function startInspection(rentalId: string, type: InspectionType, userId: string): Promise<Result<{ id: string }>> {
@@ -94,10 +112,10 @@ export async function startInspection(rentalId: string, type: InspectionType, us
 
   const rental = await getRental(rentalId);
   if (!rental) return { error: "Rental not found" };
-  if (rental.status !== NEEDS[type]) {
-    return { error: type === "pickup" ? "Only a booked rental can have a pickup inspection" : "Only a rental that is out can have a return inspection" };
+  if (!ALLOWED[type].includes(rental.status)) {
+    return { error: rental.status === "cancelled" ? "A cancelled rental has no inspection" : "A return inspection needs the car to have gone out first" };
   }
-  if (type === "pickup") {
+  if (type === "pickup" && rental.status === "booked") {
     const other = await carStillOut(rental.vehicle_id, rentalId);
     if (other) return { error: `This car is still out on ${other}. It has to be returned first.` };
   }
@@ -105,7 +123,13 @@ export async function startInspection(rentalId: string, type: InspectionType, us
   const veh = await db.prepare("SELECT odometer_km FROM vehicles WHERE id = ?").bind(rental.vehicle_id).first<{ odometer_km: number }>();
   const pickup = type === "return" ? await getInspection(rentalId, "pickup") : null;
   // A return starts from the pickup reading; a pickup starts from the vehicle's last known reading.
-  const odo = pickup?.completed_at ? pickup.odometer_km : (veh?.odometer_km ?? 0);
+  // Prefill: a pickup from the car's reading (or the km typed at booking); for a rental already out / returned, from what was
+  // recorded for it. A return starts from the pickup reading (or the end km already recorded).
+  const carKm = veh?.odometer_km ?? 0;
+  const odo =
+    type === "pickup"
+      ? rental.status === "booked" ? Math.max(carKm, rental.start_km ?? 0) : (rental.start_km ?? carKm)
+      : rental.status === "returned" && rental.end_km !== null ? rental.end_km : pickup?.completed_at ? pickup.odometer_km : (rental.start_km ?? carKm);
   const now = new Date().toISOString();
   const id = crypto.randomUUID();
   await db
@@ -262,16 +286,32 @@ export async function completeInspection(id: string, v: Readings, user: Actor): 
   if (!insp) return { error: "Inspection not found" };
   if (insp.completed_at) return { error: "This inspection is already completed" };
   const rental = await getRental(insp.rental_id);
-  if (!rental || rental.status !== NEEDS[insp.type]) return { error: "The rental's status changed. Go back and check it." };
+  if (!rental || !ALLOWED[insp.type].includes(rental.status)) return { error: "The rental's status changed. Go back and check it." };
+  const normal = rental.status === TRANSITION[insp.type]; // changes the rental's status; otherwise it only records the handover
 
+  // When the handover really happened (defaults to now). Never in the future.
+  const nowMs = Date.now();
+  const when = v.at ?? new Date(nowMs).toISOString();
+  if (Date.parse(when) > nowMs + 2 * 60_000) return { error: "The time can't be in the future" };
+
+  const pickup = await getInspection(rental.id, "pickup");
   if (insp.type === "pickup") {
-    const other = await carStillOut(rental.vehicle_id, rental.id);
-    if (other) return { error: `This car is still out on ${other}. It has to be returned first.` };
-  } else {
-    const pickup = await getInspection(rental.id, "pickup");
-    if (pickup?.completed_at && v.odometer_km < pickup.odometer_km) {
-      return { error: `Odometer can't be lower than at pickup (${pickup.odometer_km} km)` };
+    if (normal) {
+      const other = await carStillOut(rental.vehicle_id, rental.id);
+      if (other) return { error: `This car is still out on ${other}. It has to be returned first.` };
+      // The car can't have been picked up before it came back from its previous rental.
+      const prev = await db
+        .prepare("SELECT rental_number, actual_return_at FROM rentals WHERE vehicle_id = ? AND id <> ? AND status = 'returned' AND actual_return_at IS NOT NULL AND actual_return_at > ? AND start_at <= ? ORDER BY actual_return_at DESC LIMIT 1")
+        .bind(rental.vehicle_id, rental.id, when, new Date(nowMs).toISOString())
+        .first<{ rental_number: string; actual_return_at: string }>();
+      if (prev) return { error: `This car was still out on ${prev.rental_number} until ${formatIST(prev.actual_return_at)}. Pick a later time.` };
     }
+    if (rental.actual_return_at && when > rental.actual_return_at) return { error: `The pickup time can't be after the return (${formatIST(rental.actual_return_at)})` };
+  } else {
+    const startKm = pickup?.completed_at ? pickup.odometer_km : rental.start_km;
+    if (startKm !== null && startKm !== undefined && v.odometer_km < startKm) return { error: `Odometer can't be lower than at pickup (${startKm} km)` };
+    const pickedUp = rental.actual_pickup_at ?? rental.start_at;
+    if (when < pickedUp) return { error: `The return can't be before the pickup (${formatIST(pickedUp)})` };
   }
 
   const photos = await listInspectionPhotos(id);
@@ -283,30 +323,37 @@ export async function completeInspection(id: string, v: Readings, user: Actor): 
     override = 1;
   }
 
-  const now = new Date().toISOString();
+  const now = new Date(nowMs).toISOString();
+  const guard = "EXISTS (SELECT 1 FROM inspections WHERE id=?3 AND completed_at=?2)";
   const rentalStmt =
     insp.type === "pickup"
-      ? db.prepare("UPDATE rentals SET status='active', actual_pickup_at=?2, updated_at=?2 WHERE id=?1 AND status='booked' AND EXISTS (SELECT 1 FROM inspections WHERE id=?3 AND completed_at=?2)").bind(rental.id, now, id)
-      : db.prepare("UPDATE rentals SET status='returned', actual_return_at=?2, updated_at=?2 WHERE id=?1 AND status='active' AND EXISTS (SELECT 1 FROM inspections WHERE id=?3 AND completed_at=?2)").bind(rental.id, now, id);
+      ? normal
+        ? db.prepare(`UPDATE rentals SET status='active', actual_pickup_at=?5, start_km=?4, updated_at=?2 WHERE id=?1 AND status='booked' AND ${guard}`).bind(rental.id, now, id, v.odometer_km, when)
+        : db.prepare(`UPDATE rentals SET actual_pickup_at=?5, start_km=?4, updated_at=?2 WHERE id=?1 AND status IN ('active','returned') AND ${guard}`).bind(rental.id, now, id, v.odometer_km, when)
+      : normal
+        ? db.prepare(`UPDATE rentals SET status='returned', actual_return_at=?5, end_km=?4, updated_at=?2 WHERE id=?1 AND status='active' AND ${guard}`).bind(rental.id, now, id, v.odometer_km, when)
+        : db.prepare(`UPDATE rentals SET actual_return_at=?5, end_km=?4, updated_at=?2 WHERE id=?1 AND status='returned' AND ${guard}`).bind(rental.id, now, id, v.odometer_km, when);
 
   const label = TYPE_LABEL[insp.type].toLowerCase();
+  const afterwards = Date.parse(now) - Date.parse(when) > 5 * 60_000; // recorded well after it happened
   const changes: AuditChange[] = [
     { field: "Odometer", from: null, to: `${v.odometer_km} km` },
     { field: "Fuel", from: null, to: fuelLabel(v.fuel_eighths) },
     { field: "Photos", from: null, to: String(photos.length) },
-    { field: "Rental status", from: insp.type === "pickup" ? "Booked" : "Out now", to: insp.type === "pickup" ? "Out now" : "Returned" },
+    ...(normal ? [{ field: "Rental status", from: insp.type === "pickup" ? "Booked" : "Out now", to: insp.type === "pickup" ? "Out now" : "Returned" }] : []),
+    ...(afterwards ? [{ field: `${TYPE_LABEL[insp.type]} time (recorded afterwards)`, from: null, to: formatIST(when) }] : []),
     ...(v.notes ? [{ field: "Notes", from: null, to: v.notes }] : []),
     ...(override ? [{ field: "Completed without a photo (admin)", from: null, to: v.override_reason }] : []),
   ];
   const results = await db.batch([
     db
       .prepare(
-        `UPDATE inspections SET odometer_km=?2, fuel_eighths=?3, notes=?4, override_reason=?5, override_by=?6, inspected_by=?7, inspected_at=?8, completed_at=?8, updated_at=?8
+        `UPDATE inspections SET odometer_km=?2, fuel_eighths=?3, notes=?4, override_reason=?5, override_by=?6, inspected_by=?7, inspected_at=?10, completed_at=?8, updated_at=?8
          WHERE id=?1 AND completed_at IS NULL
-           AND EXISTS (SELECT 1 FROM rentals r WHERE r.id = inspections.rental_id AND r.status = ?9)
-           AND (?10 = 1 OR (SELECT COUNT(*) FROM inspection_photos WHERE inspection_id = inspections.id) >= ${MIN_PHOTOS})`,
+           AND EXISTS (SELECT 1 FROM rentals r WHERE r.id = inspections.rental_id AND r.status IN (${IN_LIST(insp.type)}))
+           AND (?9 = 1 OR (SELECT COUNT(*) FROM inspection_photos WHERE inspection_id = inspections.id) >= ${MIN_PHOTOS})`,
       )
-      .bind(id, v.odometer_km, v.fuel_eighths, v.notes, override ? v.override_reason : null, override ? user.id : null, user.id, now, NEEDS[insp.type], override),
+      .bind(id, v.odometer_km, v.fuel_eighths, v.notes, override ? v.override_reason : null, override ? user.id : null, user.id, now, override, when),
     rentalStmt,
     db
       .prepare("UPDATE vehicles SET odometer_km = MAX(odometer_km, ?2), updated_at = ?3 WHERE id = ?1 AND EXISTS (SELECT 1 FROM inspections WHERE id = ?4 AND completed_at = ?3)")
@@ -318,7 +365,9 @@ export async function completeInspection(id: string, v: Readings, user: Actor): 
         entityType: "inspection",
         entityId: id,
         rentalId: rental.id,
-        summary: `Completed the ${label} inspection (${v.odometer_km} km, fuel ${fuelLabel(v.fuel_eighths)}, ${photos.length} photo${photos.length === 1 ? "" : "s"}); rental is now ${insp.type === "pickup" ? "out" : "returned"}${override ? ". Completed without a photo by an admin" : ""}`,
+        summary: normal
+          ? `Completed the ${label} inspection (${v.odometer_km} km, fuel ${fuelLabel(v.fuel_eighths)}, ${photos.length} photo${photos.length === 1 ? "" : "s"}); rental is now ${insp.type === "pickup" ? "out" : "returned"}${afterwards ? `, ${label} time ${formatIST(when)}` : ""}${override ? ". Completed without a photo by an admin" : ""}`
+          : `Recorded the ${label} inspection afterwards (${v.odometer_km} km, fuel ${fuelLabel(v.fuel_eighths)}, ${photos.length} photo${photos.length === 1 ? "" : "s"}); the rental was already ${rental.status === "active" ? "out" : "returned"}${afterwards ? `, ${label} time ${formatIST(when)}` : ""}${override ? ". Completed without a photo by an admin" : ""}`,
         changes,
       },
       "SELECT 1 FROM inspections WHERE id = ?1 AND completed_at = ?2",

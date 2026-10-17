@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { env } from "./env";
 import { rupeesToPaise } from "./money";
+import { documentInsert, type NewDocument } from "./vehicle-docs";
 
 import { FUEL_TYPES, TRANSMISSIONS } from "./vehicle-constants";
 export { MAX_PHOTOS, MAX_PHOTO_BYTES } from "./vehicle-constants";
@@ -94,15 +95,23 @@ export async function listPhotos(vehicleId: string) {
 const COLS = "registration_number,make,model,year,color,fuel_type,transmission,seats,odometer_km,daily_rate_paise,deposit_paise,notes";
 
 /** Returns {error} on a duplicate registration number. */
-export async function insertVehicle(v: VehicleInput): Promise<{ id: string } | { error: string }> {
+/**
+ * Creates the vehicle and, in the same transaction, one document row for each paper entered on the Add vehicle form
+ * (the files are uploaded afterwards, attached to the returned document ids).
+ */
+export async function insertVehicle(v: VehicleInput, docs: NewDocument[] = [], userId = ""): Promise<{ id: string; docs: Record<string, string> } | { error: string }> {
+  const db = env().DB;
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
+  const rows = docs.map((d) => ({ type: d.doc_type, ...documentInsert(id, d, userId, now) }));
   try {
-    await env()
-      .DB.prepare(`INSERT INTO vehicles (id,${COLS},created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-      .bind(id, v.registration_number, v.make, v.model, v.year, v.color, v.fuel_type, v.transmission, v.seats, v.odometer_km, v.daily_rate_paise, v.deposit_paise, v.notes, now, now)
-      .run();
-    return { id };
+    await db.batch([
+      db
+        .prepare(`INSERT INTO vehicles (id,${COLS},created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+        .bind(id, v.registration_number, v.make, v.model, v.year, v.color, v.fuel_type, v.transmission, v.seats, v.odometer_km, v.daily_rate_paise, v.deposit_paise, v.notes, now, now),
+      ...rows.map((r) => r.stmt),
+    ]);
+    return { id, docs: Object.fromEntries(rows.map((r) => [r.type, r.id])) };
   } catch (e) {
     if (String(e).includes("UNIQUE")) return { error: "A vehicle with this registration number already exists" };
     throw e;

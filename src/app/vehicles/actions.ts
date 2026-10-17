@@ -1,13 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import { requireAdmin, requireUser } from "@/lib/session";
 import { vehicleHasOpenRentals } from "@/lib/rentals";
-import { safeBack, withBack } from "@/lib/nav";
 import { insertVehicle, setActive, updateVehicle, vehicleSchema } from "@/lib/vehicles";
+import { validUntilSchema } from "@/lib/vehicle-docs";
+import { DOC_TYPES } from "@/lib/vehicle-docs-shared";
 
-export type FormState = { errors?: Record<string, string>; message?: string; values?: Record<string, string>; id?: string } | null;
+export type FormState = { errors?: Record<string, string>; message?: string; values?: Record<string, string>; id?: string; docs?: Record<string, string> } | null;
 
 function parse(formData: FormData) {
   const values = Object.fromEntries([...formData].filter(([, v]) => typeof v === "string")) as Record<string, string>;
@@ -18,14 +18,28 @@ function parse(formData: FormData) {
   return { values, state: { errors, values, message: "Please fix the highlighted fields" } satisfies FormState };
 }
 
-export async function createVehicleAction(back: string, _: FormState, formData: FormData): Promise<FormState> {
-  await requireUser();
+/**
+ * Adds the vehicle and one document row for each paper entered on the form (a valid-until date and/or files chosen).
+ * It does not redirect: the browser then uploads the chosen files to the returned document ids and navigates.
+ */
+export async function createVehicleAction(_back: string, _: FormState, formData: FormData): Promise<FormState> {
+  const user = await requireUser();
   const p = parse(formData);
-  if (!p.data) return p.state;
-  const r = await insertVehicle(p.data);
+  const docErrors: Record<string, string> = {};
+  const docs: { doc_type: (typeof DOC_TYPES)[number]; valid_until: string | null }[] = [];
+  for (const t of DOC_TYPES) {
+    const until = validUntilSchema.safeParse(String(formData.get(`doc_${t}_until`) ?? ""));
+    if (!until.success) { docErrors[`doc_${t}_until`] = until.error.issues[0].message; continue; }
+    if (until.data || formData.get(`doc_${t}_file`) === "1") docs.push({ doc_type: t, valid_until: until.data });
+  }
+  if (!p.data || Object.keys(docErrors).length) {
+    const base = p.data ? { errors: {}, values: p.values, message: "Please fix the highlighted fields" } : p.state!;
+    return { ...base, errors: { ...(base.errors ?? {}), ...docErrors } };
+  }
+  const r = await insertVehicle(p.data, docs, user.id);
   if ("error" in r) return { message: r.error, errors: { registration_number: r.error }, values: p.values };
   revalidatePath("/vehicles");
-  redirect(withBack(`/vehicles/${r.id}`, safeBack(back, "/vehicles")));
+  return { message: "Vehicle added", id: r.id, docs: r.docs };
 }
 
 export async function updateVehicleAction(id: string, _: FormState, formData: FormData): Promise<FormState> {

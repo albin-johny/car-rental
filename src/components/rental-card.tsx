@@ -34,6 +34,11 @@ export function RentalCard({ r, from, compact = false }: { r: RentalListItem; fr
       <p className="mt-1 font-medium">{r.customer_name} <span className="font-normal text-slate-500">· {r.customer_phone}</span></p>
       <p className="text-sm text-slate-600">{r.make} {r.model} · <span className="font-mono">{r.registration_number}</span></p>
       <p className="text-sm text-slate-500">{formatISTCompact(r.start_at)} → {formatISTCompact(r.end_at)}</p>
+      {r.start_km !== null && (
+        <p className="text-sm text-slate-500">
+          {new Intl.NumberFormat("en-IN").format(r.start_km)} km{r.end_km !== null && <> → {new Intl.NumberFormat("en-IN").format(r.end_km)} km · <b className="font-medium text-slate-700">{new Intl.NumberFormat("en-IN").format(r.end_km - r.start_km)} km driven</b></>}
+        </p>
+      )}
       <p className="mt-1 text-sm font-semibold">{formatINR(r.total_paise)}</p>
     </Link>
   );

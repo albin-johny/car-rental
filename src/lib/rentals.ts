@@ -19,6 +19,8 @@ export type Rental = {
   actual_return_at: string | null;
   rate_snapshot_paise: number;
   total_paise: number;
+  start_km: number | null;
+  end_km: number | null;
   status: RentalStatus;
   notes: string | null;
   created_by: string;
@@ -34,6 +36,18 @@ export type RentalListItem = Rental & {
 };
 
 const MAX_DAYS = 366;
+
+const MAX_KM = 5_000_000;
+/** Optional whole-kilometre field: "" -> null. */
+const kmField = z
+  .string()
+  .optional()
+  .transform((v, ctx) => {
+    const t = (v ?? "").trim().replace(/,/g, "");
+    if (!t) return null;
+    if (!/^\d{1,7}$/.test(t) || Number(t) > MAX_KM) ctx.addIssue({ code: "custom", message: "Enter whole kilometres, like 64287" });
+    return Number(t);
+  });
 
 const istDateTime = (label: string) =>
   z.string().transform((v, ctx) => {
@@ -54,8 +68,19 @@ export const rentalSchema = customerFieldsSchema
     }),
     notes: z.string().trim().max(1000).optional().transform((v) => v || null),
     record_as: z.enum(["booked", "active", "returned"]).default("booked"),
+    start_km: kmField,
+    end_km: kmField,
   })
   .superRefine((v, ctx) => {
+    // Odometer: an upcoming booking may leave it blank (it is confirmed at pickup); a rental recorded as
+    // already out needs the start reading; a completed one needs both, and the end can't be below the start.
+    if (v.record_as !== "booked" && v.start_km === null) ctx.addIssue({ code: "custom", path: ["start_km"], message: "Enter the starting km" });
+    if (v.record_as === "returned" && v.end_km === null) ctx.addIssue({ code: "custom", path: ["end_km"], message: "Enter the ending km" });
+    if (v.start_km !== null && v.end_km !== null && v.record_as === "returned" && v.end_km < v.start_km) ctx.addIssue({ code: "custom", path: ["end_km"], message: "Ending km can't be lower than the starting km" });
+    // A car that is already out has started by now; a completed rental has ended by now.
+    const soon = new Date(Date.now() + 2 * 60_000).toISOString();
+    if (v.record_as !== "booked" && v.start_at && v.start_at > soon) ctx.addIssue({ code: "custom", path: ["start_at"], message: "A car that is already out must have started by now" });
+    if (v.record_as === "returned" && v.end_at && v.end_at > soon) ctx.addIssue({ code: "custom", path: ["end_at"], message: "A completed rental must have ended by now" });
     if (!v.start_at || !v.end_at) return;
     if (v.end_at <= v.start_at) ctx.addIssue({ code: "custom", path: ["end_at"], message: "End must be after start" });
     else if (new Date(v.end_at).getTime() - new Date(v.start_at).getTime() > MAX_DAYS * 864e5)
@@ -95,6 +120,10 @@ async function conflictMessage(vehicleId: string, start: string, end: string, ex
 
 const carLabel = (r: { make: string; model: string; registration_number: string }) => `${r.make} ${r.model} (${r.registration_number})`;
 
+const fmtKm = (km: number) => `${new Intl.NumberFormat("en-IN").format(km)} km`;
+const kmSummary = (start: number | null, end: number | null) =>
+  start === null ? "" : `, ${end === null ? `starting at ${fmtKm(start)}` : `${fmtKm(start)} to ${fmtKm(end)}`}`;
+
 async function vehicleLabel(vehicleId: string): Promise<string> {
   const v = await env().DB.prepare("SELECT make, model, registration_number FROM vehicles WHERE id = ?").bind(vehicleId).first<{ make: string; model: string; registration_number: string }>();
   return v ? carLabel(v) : "unknown car";
@@ -116,13 +145,13 @@ export async function createRental(v: RentalInput, user: AuditUser): Promise<Res
         db
         .prepare(
           `INSERT INTO rentals (id, rental_number, seq_year, seq, vehicle_id, customer_id, start_at, end_at,
-             actual_pickup_at, actual_return_at, rate_snapshot_paise, total_paise, status, notes, created_by, created_at, updated_at)
+             actual_pickup_at, actual_return_at, rate_snapshot_paise, total_paise, status, notes, created_by, created_at, updated_at, start_km, end_km)
            SELECT ?1, 'R-' || CAST(?2 AS INTEGER) || '-' || printf('%04d', s.n), CAST(?2 AS INTEGER), s.n, v.id, ?4, ?5, ?6,
-             ?12, ?13, v.daily_rate_paise, ?7, ?8, ?9, ?10, ?11, ?11
+             ?12, ?13, v.daily_rate_paise, ?7, ?8, ?9, ?10, ?11, ?11, ?14, ?15
            FROM vehicles v, (SELECT COALESCE(MAX(seq), 0) + 1 AS n FROM rentals WHERE seq_year = CAST(?2 AS INTEGER)) s
            WHERE v.id = ?3 AND v.is_active = 1 AND ${OVERLAP("v.id", "?5", "?6")}`,
         )
-        .bind(id, istYear(), v.vehicle_id, customerId, v.start_at, v.end_at, v.total, v.record_as, v.notes, user.id, now, pickup, returned),
+        .bind(id, istYear(), v.vehicle_id, customerId, v.start_at, v.end_at, v.total, v.record_as, v.notes, user.id, now, pickup, returned, v.start_km, v.record_as === "returned" ? v.end_km : null),
         // The log entry is written in the same batch, and only if the rental row really exists.
         auditStatement(
           user,
@@ -131,11 +160,19 @@ export async function createRental(v: RentalInput, user: AuditUser): Promise<Res
             entityType: "rental",
             entityId: id,
             rentalId: id,
-            summary: `Created rental: ${car} for ${v.customer_name}, ${formatIST(v.start_at)} to ${formatIST(v.end_at)}, ${formatINR(v.total)}${v.record_as === "booked" ? "" : ` (entered as ${v.record_as === "active" ? "already out" : "completed"})`}`,
+            summary: `Created rental: ${car} for ${v.customer_name}, ${formatIST(v.start_at)} to ${formatIST(v.end_at)}, ${formatINR(v.total)}${v.record_as === "booked" ? "" : ` (entered as ${v.record_as === "active" ? "already out" : "completed"})`}${kmSummary(v.start_km, v.record_as === "returned" ? v.end_km : null)}`,
           },
           "SELECT 1 FROM rentals WHERE id = ?1",
           id,
         ),
+        // A rental entered as already out / completed raises the car's own odometer to that reading (never lowers it).
+        ...(v.record_as !== "booked"
+          ? [
+              db
+                .prepare("UPDATE vehicles SET odometer_km = MAX(odometer_km, ?2), updated_at = ?4 WHERE id = ?1 AND EXISTS (SELECT 1 FROM rentals WHERE id = ?3)")
+                .bind(v.vehicle_id, (v.record_as === "returned" ? v.end_km : v.start_km) ?? 0, id, now),
+            ]
+          : []),
       ]);
       if (!r.meta.changes) {
         if (customer.created) await discardIfUnused(customerId);
@@ -163,7 +200,7 @@ export async function updateRental(id: string, v: RentalInput, user: AuditUser):
     cur.status === "booked" ? vehicleLabel(v.vehicle_id) : Promise.resolve(null),
     db.prepare("SELECT name, phone FROM customers WHERE id = ?").bind(cur.customer_id).first<{ name: string; phone: string }>(),
   ]);
-  const before = { vehicle: oldCar, renter: `${oldCust?.name} (${oldCust?.phone})`, start: formatIST(cur.start_at), end: formatIST(cur.end_at), total: formatINR(cur.total_paise), notes: cur.notes };
+  const before = { vehicle: oldCar, renter: `${oldCust?.name} (${oldCust?.phone})`, start: formatIST(cur.start_at), end: formatIST(cur.end_at), total: formatINR(cur.total_paise), notes: cur.notes, startKm: cur.start_km === null ? null : fmtKm(cur.start_km) };
   const after = {
     vehicle: newCar ?? oldCar,
     renter: `${v.customer_name} (${v.customer_phone})`,
@@ -171,8 +208,9 @@ export async function updateRental(id: string, v: RentalInput, user: AuditUser):
     end: formatIST(v.end_at),
     total: formatINR(v.total),
     notes: v.notes,
+    startKm: cur.status === "booked" ? (v.start_km === null ? null : fmtKm(v.start_km)) : before.startKm,
   };
-  const changes = diff({ vehicle: "Car", renter: "Renter", start: "Start", end: "End", total: "Total rent", notes: "Notes" }, before, after);
+  const changes = diff({ vehicle: "Car", renter: "Renter", start: "Start", end: "End", total: "Total rent", notes: "Notes", startKm: "Starting km" }, before, after);
   const result = await applyUpdate(cur, v, customer.id, user, changes);
   if ("error" in result && customer.created) await discardIfUnused(customer.id);
   return result;
@@ -220,12 +258,12 @@ async function applyUpdate(cur: Rental, v: RentalInput, customerId: string, user
   const [r] = await db.batch([
     db
       .prepare(
-        `UPDATE rentals SET vehicle_id=?2, customer_id=?3, start_at=?4, end_at=?5, rate_snapshot_paise=?6, total_paise=?7, notes=?8, updated_at=?9
+        `UPDATE rentals SET vehicle_id=?2, customer_id=?3, start_at=?4, end_at=?5, rate_snapshot_paise=?6, total_paise=?7, notes=?8, updated_at=?9, start_km=?10
        WHERE id=?1 AND status='booked'
          AND EXISTS (SELECT 1 FROM vehicles v WHERE v.id = ?2 AND v.is_active = 1)
          AND ${OVERLAP("?2", "?4", "?5", "?1")}`,
       )
-      .bind(id, v.vehicle_id, customerId, v.start_at, v.end_at, rate, v.total, v.notes, now),
+      .bind(id, v.vehicle_id, customerId, v.start_at, v.end_at, rate, v.total, v.notes, now, v.start_km),
     ...log(),
   ]);
   return r.meta.changes ? { ok: true } : { error: await conflictMessage(v.vehicle_id, v.start_at, v.end_at, id) };

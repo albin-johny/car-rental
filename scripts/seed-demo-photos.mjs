@@ -35,6 +35,8 @@ try {
   // service bills: files live under service/demo-<vehicle>/..., rows cascade away with the demo entries
   for (const o of (await PHOTOS.list({ prefix: "service/demo-" })).objects) await PHOTOS.delete(o.key);
   await DB.prepare(`DELETE FROM service_bills WHERE id LIKE 'demo-%'`).run();
+  for (const o of (await PHOTOS.list({ prefix: "vehicle-docs/demo-" })).objects) await PHOTOS.delete(o.key);
+  await DB.prepare(`DELETE FROM vehicle_document_files WHERE id LIKE 'demo-%'`).run();
 
   for (const table of ["inspection_photos", "vehicle_photos"]) {
     const { results } = await DB.prepare(`SELECT id, r2_key FROM ${table} WHERE id LIKE 'demo-%'`).all();
@@ -118,6 +120,22 @@ try {
       .bind(newId("sb"), r.id, key, isPdf ? "application/pdf" : "image/jpeg", bytes.byteLength, first.id, r.created_at).run();
     bills++;
   }
+  // 5) vehicle papers: 1-2 files on most demo papers (photo or the demo PDF)
+  const { results: docs } = await DB.prepare(`SELECT id, vehicle_id FROM vehicle_documents WHERE id LIKE 'demo-%' ORDER BY id`).all();
+  let docFiles = 0;
+  for (const [idx, d] of docs.entries()) {
+    if (idx % 5 === 4) continue; // some papers have no file yet
+    for (let n = 0; n < 1 + (idx % 2); n++) {
+      const isPdf = (idx + n) % 4 === 3;
+      const bytes = isPdf ? pdf : images[(idx + n) % images.length];
+      const key = `vehicle-docs/${d.vehicle_id}/${d.id}/demo-${crypto.randomUUID()}.${isPdf ? "pdf" : "jpg"}`;
+      await PHOTOS.put(key, bytes, { httpMetadata: { contentType: isPdf ? "application/pdf" : "image/jpeg" } });
+      await DB.prepare(`INSERT INTO vehicle_document_files (id,document_id,r2_key,content_type,size_bytes,created_by,created_at) VALUES (?,?,?,?,?,?,?)`)
+        .bind(`demo-${crypto.randomUUID()}`, d.id, key, isPdf ? "application/pdf" : "image/jpeg", bytes.byteLength, first.id, new Date().toISOString()).run();
+      docFiles++;
+    }
+  }
+  console.log(`vehicle papers: ${docs.length} papers, ${docFiles} files`);
   console.log(`service bills: ${bills} of ${recs.length} demo service entries have a bill`);
   console.log(`inspections: ${withPhotos} with photos, ${without} without (${late} of those got "added later" photos) | ${photoCount} inspection photos`);
   console.log(`vehicles: ${vCars} of ${vehicles.length} cars got ${vPhotos} gallery photos`);

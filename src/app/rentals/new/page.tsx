@@ -15,7 +15,7 @@ export default async function NewRentalPage({ searchParams }: { searchParams: Pr
   const vehicles = await listVehicles({ status: "active" });
   const hour = 3600_000;
   const startMs = Math.ceil(Date.now() / hour) * hour;
-  const options = vehicles.map((v) => ({ id: v.id, label: `${v.make} ${v.model} · ${v.registration_number} · ${formatINR(v.daily_rate_paise)}/day`, rate_paise: v.daily_rate_paise }));
+  const options = vehicles.map((v) => ({ id: v.id, label: `${v.make} ${v.model} · ${v.registration_number} · ${formatINR(v.daily_rate_paise)}/day`, rate_paise: v.daily_rate_paise, odometer_km: v.odometer_km }));
   const back = safeBack(sp.back, sp.vehicle ? `/vehicles/${sp.vehicle}` : "/rentals");
   const pre = options.find((o) => o.id === sp.vehicle)?.id ?? "";
 

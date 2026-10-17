@@ -3,11 +3,11 @@ import { useActionState, useEffect, useState } from "react";
 import type { FormState } from "@/app/vehicles/actions";
 import { CustomerFields } from "./customer-fields";
 import { formatINR, paiseToInput } from "@/lib/money";
-import { istInputToIso } from "@/lib/time";
+import { isoToIstInput, istInputToIso } from "@/lib/time";
 import { rentalDays, suggestTotalPaise } from "@/lib/rental-constants";
 
 type Action = (prev: FormState, fd: FormData) => Promise<FormState>;
-export type VehicleOption = { id: string; label: string; rate_paise: number };
+export type VehicleOption = { id: string; label: string; rate_paise: number; odometer_km: number };
 
 export function RentalForm({
   action, vehicles, initial, mode, submitLabel,
@@ -28,6 +28,9 @@ export function RentalForm({
   const [notes, setNotes] = useState(initial.notes ?? "");
   const [recordAs, setRecordAs] = useState(initial.record_as ?? "booked");
   const [touched, setTouched] = useState(mode !== "create"); // staff typed a total; stop auto-suggesting
+  const [startKm, setStartKm] = useState(initial.start_km ?? "");
+  const [endKm, setEndKm] = useState(initial.end_km ?? "");
+  const [kmTouched, setKmTouched] = useState(mode !== "create");
 
   const rate = vehicles.find((v) => v.id === vehicleId)?.rate_paise;
   const sIso = istInputToIso(start);
@@ -38,8 +41,23 @@ export function RentalForm({
     if (!touched && suggestion !== null) setTotal(paiseToInput(suggestion));
   }, [suggestion, touched]);
 
+  // A car that is already out (or was) starts from its last known reading; an upcoming booking leaves it blank.
+  const car = vehicles.find((v) => v.id === vehicleId);
+  useEffect(() => {
+    if (mode !== "create" || kmTouched) return;
+    setStartKm(recordAs !== "booked" && car ? String(car.odometer_km) : "");
+  }, [mode, kmTouched, recordAs, car]);
+
   const err = state?.errors ?? {};
   const locked = mode === "edit-active";
+
+  // Choosing "already out" / "completed" means it already started (and ended): move any future time back to now.
+  const changeRecordAs = (v: string) => {
+    setRecordAs(v);
+    const now = isoToIstInput(new Date().toISOString());
+    if (v !== "booked" && start > now) setStart(now);
+    if (v === "returned" && end > now) setEnd(now);
+  };
 
   return (
     <form action={formAction} className="space-y-4">
@@ -56,6 +74,7 @@ export function RentalForm({
             {vehicles.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
           </select>
           {err.vehicle_id && <p className="err">{err.vehicle_id}</p>}
+          {car && <p className="mt-1.5 text-sm text-slate-500">Last known reading: <b>{new Intl.NumberFormat("en-IN").format(car.odometer_km)} km</b></p>}
         </div>
       )}
 
@@ -94,11 +113,31 @@ export function RentalForm({
       {mode === "create" && (
         <div>
           <label className="label" htmlFor="record_as">Record as</label>
-          <select id="record_as" name="record_as" value={recordAs} onChange={(e) => setRecordAs(e.target.value)} className="input">
+          <select id="record_as" name="record_as" value={recordAs} onChange={(e) => changeRecordAs(e.target.value)} className="input">
             <option value="booked">Booked (upcoming)</option>
             <option value="active">Already out (picked up)</option>
             <option value="returned">Completed (past rental)</option>
           </select>
+          {recordAs !== "booked" && <p className="mt-1.5 text-xs text-slate-500">Handover already happened? Save this now, then add the pickup/return photos and readings afterwards from the rental page.</p>}
+        </div>
+      )}
+
+      {!locked && (
+        <div className={`grid gap-3 ${mode === "create" && recordAs === "returned" ? "grid-cols-2" : "grid-cols-1"}`}>
+          <div>
+            <label className="label" htmlFor="start_km">{mode === "create" && recordAs !== "booked" ? "Starting km" : "Starting km (optional)"}</label>
+            <input id="start_km" name="start_km" value={startKm} onChange={(e) => { setStartKm(e.target.value); setKmTouched(true); }} inputMode="numeric"
+              required={mode === "create" && recordAs !== "booked"} placeholder={car ? String(car.odometer_km) : "e.g. 64287"} className="input" />
+            {err.start_km && <p className="err">{err.start_km}</p>}
+            {(mode !== "create" || recordAs === "booked") && <p className="mt-1 text-xs text-slate-500">Confirmed at pickup; you can leave it blank.</p>}
+          </div>
+          {mode === "create" && recordAs === "returned" && (
+            <div>
+              <label className="label" htmlFor="end_km">Ending km</label>
+              <input id="end_km" name="end_km" value={endKm} onChange={(e) => setEndKm(e.target.value)} inputMode="numeric" required placeholder="e.g. 64650" className="input" />
+              {err.end_km && <p className="err">{err.end_km}</p>}
+            </div>
+          )}
         </div>
       )}
 

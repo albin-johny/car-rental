@@ -18,6 +18,8 @@ import { updateRentalAction } from "../actions";
 
 export const metadata = { title: "Rental" };
 
+const inspState = (i?: { completed_at: string | null }) => (!i ? ("none" as const) : i.completed_at ? ("done" as const) : ("draft" as const));
+
 export default async function RentalPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ back?: string }> }) {
   const me = await requireUser();
   const { id } = await params;
@@ -30,7 +32,7 @@ export default async function RentalPage({ params, searchParams }: { params: Pro
   const historyCount = me.role === "admin" ? await countAuditForRental(id) : 0;
   const editable = r.status === "booked" || r.status === "active";
   const vehicles = editable ? await listVehicles({ status: "active" }) : [];
-  const options = vehicles.map((v) => ({ id: v.id, label: `${v.make} ${v.model} · ${v.registration_number}`, rate_paise: v.daily_rate_paise }));
+  const options = vehicles.map((v) => ({ id: v.id, label: `${v.make} ${v.model} · ${v.registration_number}`, rate_paise: v.daily_rate_paise, odometer_km: v.odometer_km }));
 
   const row = (label: string, value: React.ReactNode) => (
     <div className="flex justify-between gap-4 py-2 text-sm"><dt className="text-slate-500">{label}</dt><dd className="text-right font-medium">{value}</dd></div>
@@ -50,12 +52,15 @@ export default async function RentalPage({ params, searchParams }: { params: Pro
         {row("Expected return", formatIST(r.end_at))}
         {r.actual_pickup_at && row("Picked up", formatIST(r.actual_pickup_at))}
         {r.actual_return_at && row("Returned", formatIST(r.actual_return_at))}
+        {r.start_km !== null && row("Start km", `${new Intl.NumberFormat("en-IN").format(r.start_km)} km`)}
+        {r.end_km !== null && row("End km", `${new Intl.NumberFormat("en-IN").format(r.end_km)} km`)}
+        {r.start_km !== null && r.end_km !== null && row("Km driven", `${new Intl.NumberFormat("en-IN").format(r.end_km - r.start_km)} km`)}
         {row("Total rent", formatINR(r.total_paise))}
         {row("Daily rate when booked", `${formatINR(r.rate_snapshot_paise)} × ${rentalDays(r.start_at, r.end_at)} day(s)`)}
         {r.notes && row("Notes", <span className="whitespace-pre-wrap font-normal">{r.notes}</span>)}
       </dl>
 
-      <RentalActions id={r.id} back={here} status={r.status} draft={!!(r.status === "booked" ? insp.pickup : insp.return) && !(r.status === "booked" ? insp.pickup?.completed_at : insp.return?.completed_at)} />
+      <RentalActions id={r.id} back={here} status={r.status} inspections={{ pickup: inspState(insp.pickup), return: inspState(insp.return) }} />
 
       {me.role === "admin" && (
         <Link href={withBack(`/account/audit?rental=${r.id}`, here)} className="flex items-center justify-between card-link px-4 py-3 text-sm">
@@ -67,7 +72,7 @@ export default async function RentalPage({ params, searchParams }: { params: Pro
       <div className="space-y-5">
       <InspectionCompare rentalId={r.id} back={here} pickup={insp.pickup} ret={insp.return} />
       {r.status !== "booked" && !insp.pickup && r.status !== "cancelled" && (
-        <p className="text-sm text-slate-500">No pickup inspection was recorded (entered as history).</p>
+        <p className="text-sm text-slate-500">No pickup inspection has been recorded yet.</p>
       )}
 
       {editable && (
@@ -87,6 +92,7 @@ export default async function RentalPage({ params, searchParams }: { params: Pro
               start_at: isoToIstInput(r.start_at),
               end_at: isoToIstInput(r.end_at),
               total: paiseToInput(r.total_paise),
+              start_km: r.start_km === null ? "" : String(r.start_km),
               notes: r.notes ?? "",
             }}
           />

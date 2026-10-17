@@ -90,7 +90,14 @@ Inspections record the car's condition at handover, as evidence for later disput
 - **Side by side:** the rental page shows pickup and return together (odometer, fuel, notes, numbered photos) with *km driven* and the fuel difference.
 - **Photo viewer:** tapping any photo (inspection pages, the pickup/return comparison, the vehicle gallery) opens a full-screen in-app viewer: swipe or use the ‹ › arrows to flip through (wraps around), "3 / 7" counter, caption (with who/when for late photos), and ✕ / Esc / tap outside to close. Nothing opens in a new browser tab.
 - **Retention:** images expire after 1 year (see *Photo retention*); the record stays. An expired image is shown as a "Photo expired" placeholder.
-- Rentals entered as history ("Record as" already out / completed) have no inspection; the rental page says so.
+- **Handover first, paperwork later:** staff often do the handover (note the km, take the photos) and update the app afterwards. A rental that is **already out or returned** (including one entered as "Already out" / "Completed") can still get its **pickup and return inspection afterwards**: the rental page offers *Add pickup photos & readings* / *Add return photos & readings*. This records the readings, photos and km on the rental **without changing its status** (it already happened). The audit log says it was recorded afterwards.
+- **Real handover time:** every pickup / return inspection has a *When did it happen? (IST)* field, defaulting to now, that sets the rental's actual pickup / return time. It can't be in the future, a return can't be before the pickup, a pickup can't be after the return, and a normal pickup can't be backdated to before the car's previous return. The inspection shows the handover time and, when different, when it was recorded in the app.
+- **Consistent history:** a rental recorded as *already out* must have started by now, and a *completed* one must have ended by now. Choosing those options on the booking form moves any future time back to now.
+- **Odometer on the rental** (migration `0010`: `rentals.start_km`, `rentals.end_km`):
+  - **Booking form:** *Starting km* is optional for an upcoming booking (the car's last known reading is shown as a hint and placeholder), **required** for a rental entered as *already out* (prefilled from the car), and a *completed* rental also needs *Ending km* (not below the start). Whole kilometres only.
+  - **Pickup / return:** completing the pickup inspection stores the confirmed reading as the rental's start km (replacing any km typed at booking); completing the return stores the end km. The pickup draft is prefilled with the higher of the car's reading and any km typed at booking; the return draft starts from the start km and refuses a lower reading.
+  - **Typo warnings:** an amber warning on the pickup form when the reading is below the car's last known km; a red message on the return form when it is below pickup.
+  - **Shown on** the rental page (start, end, km driven) and the rental cards ("20,046 km → 20,326 km · 280 km driven"), including history rentals. The car's own odometer is raised to the latest reading, never lowered. Existing rentals were back-filled from their completed inspections.
 
 ## Phase 3 (built, in review)
 
@@ -174,6 +181,7 @@ The 365-day R2 lifecycle rule deletes any object matching its prefix. Scope it a
 | `inspections/` | pickup and return photos | ✅ Yes |
 | `service/` | service bills (photos and PDFs) | ❌ No (financial records) |
 | `vehicles/` | vehicle gallery photos | ❌ No |
+| `vehicle-docs/` | insurance / PUC / RC papers (migration `0011`) | ❌ No |
 | `backups/` | database exports | ❌ No (manage separately) |
 
 Vehicle photos are stored under `vehicles/<vehicle_id>/` and inspection photos under `inspections/<rental_id>/…`, so a rule scoped to `inspections/` never touches vehicle photos. When an expired image is requested, the photo route returns a "Photo expired" placeholder instead of an error.
