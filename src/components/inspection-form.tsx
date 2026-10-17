@@ -74,6 +74,7 @@ export function InspectionForm({
 
   return (
     <form action={formAction} className="space-y-6">
+      <div className="space-y-6 lg:grid lg:grid-cols-[minmax(0,26rem)_1fr] lg:items-start lg:gap-8 lg:space-y-0">
       <section className="space-y-3">
         <h2 className="font-semibold">Readings</h2>
         <div>
@@ -102,7 +103,7 @@ export function InspectionForm({
         </div>
 
         {order.length > 0 && (
-          <ol className="grid grid-cols-2 gap-3">
+          <ol className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
             {order.map((id, i) => (
               <li key={id} className="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-slate-200">
                 <div className="relative">
@@ -134,6 +135,7 @@ export function InspectionForm({
         {photoError && <p className="err" role="alert">{photoError}</p>}
         {order.length > 1 && <p className="text-xs text-slate-500">Use ‹ › to change the order. Numbers follow the order.</p>}
       </section>
+      </div>
 
       {viewing !== null && (
         <PhotoViewer
@@ -153,7 +155,7 @@ export function InspectionForm({
       {needPhoto && !isAdmin && <p className="text-sm text-slate-600">Add at least one photo to complete. Only an admin can complete without one.</p>}
       {state?.message && <p role="status" className={state.errors ? "err" : "text-sm text-green-700"}>{state.message}</p>}
 
-      <div className="space-y-2">
+      <div className="space-y-2 md:max-w-sm">
         <button name="intent" value="complete" className="btn w-full" disabled={pending || busy || (needPhoto && !(isAdmin && reason.trim().length > 0))}>
           {pending ? "Saving…" : "Complete inspection"}
         </button>

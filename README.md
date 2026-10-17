@@ -42,6 +42,7 @@ There is no customer-facing portal and no customer login.
 - **At least one photo is required** at pickup and return; an **admin may override with a written reason**. A rental becomes `active` only by completing its pickup inspection, and `returned` only by completing its return inspection. The admin override waives the **photo only**; odometer and fuel are always required.
 - **Backups: Cloudflare D1 Time Travel only** (automatic, restore to any minute in the last 30 days). No scheduled email export. The restore steps were tested on a throwaway database; see [docs/OPERATIONS.md](docs/OPERATIONS.md).
 - **Audit log covers rentals and inspections only.**
+- **Phones and tablets are both first-class.** Phones: one column with a bottom tab bar. From 768px (iPad and up): a left navigation rail (icons from 768px, icons + labels + signed-in user from 1024px), wider content, card grids, and two-column detail screens. Touch targets are at least 44px on tablets.
 - Responsive PWA, installable; **no offline editing**. Nothing private is cached by the service worker.
 - Roles: `admin` and `staff` only.
 - `robots.txt` / `noindex` is not security. Every page and API route checks the session itself.
@@ -112,6 +113,12 @@ Migration `0007`.
 - **Login rate limiting now keys on `cf-connecting-ip`** (set by Cloudflare, not forgeable), so lockouts apply per person instead of one shared bucket.
 - **Automated tests** (`npm test`, 65 tests, about 15 seconds): periods and IST/UTC boundaries, money, back-link safety, booking and the no-double-booking race, the inspection rules, income reports and their reconciliation, the audit log (atomic, append-only, paging) and staff rules (including the last-admin race and real sign-in refusal). Each test file gets a throwaway local database built from the real migrations.
 - **Restore guide:** [docs/OPERATIONS.md](docs/OPERATIONS.md) is the plain-language owner/admin guide (daily use, staff, audit log, restoring with Time Travel, lockout recovery, secrets, handover). Restore was tested on a throwaway D1 database: data deleted, restored from a bookmark, all rows back.
+
+## UI system
+
+- **Layouts:** `src/app/layout.tsx` switches between `BottomNav` (phones) and `SideNav` (768px and up); both read the same list in `src/components/nav-items.ts`. Lists become 2-3 column card grids on tablets; rental, vehicle, inspection and staff screens become two columns from 1024px. Form screens stay in a centred 672px column.
+- **Shared styles** live in `src/app/globals.css`: `.card` / `.card-link`, `.btn` (+ `-secondary`, `-danger`, `-sm`), `.input`, `.label`, `.chip`, `.badge`. Hover states only apply on devices with a pointer (iPad trackpad / mouse); keyboard users get a visible focus ring everywhere. Use these classes instead of repeating utility strings.
+- **Checking a layout change:** build, then screenshot the screens at 390 (phone), 768, 1180 and 1366 wide and confirm nothing scrolls sideways.
 
 ## Roadmap
 

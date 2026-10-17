@@ -22,11 +22,13 @@ export default async function CustomerPage({ params, searchParams }: { params: P
   return (
     <div className="space-y-5">
       <ScreenHeader title={c.name} back={back} />
+      <div className="space-y-5 lg:grid lg:grid-cols-[minmax(0,26rem)_1fr] lg:items-start lg:gap-8 lg:space-y-0">
       <CustomerForm key={c.updated_at} action={updateCustomerAction.bind(null, id)} initial={{ name: c.name, phone: c.phone, notes: c.notes ?? "" }} />
       <section className="space-y-3">
         <h2 className="font-semibold">Rental history ({rentals.length})</h2>
-        {rentals.length === 0 ? <p className="text-sm text-slate-500">No rentals yet.</p> : <ul className="space-y-3">{rentals.map((r) => <li key={r.id}><RentalCard r={r} from={here} /></li>)}</ul>}
+        {rentals.length === 0 ? <p className="text-sm text-slate-500">No rentals yet.</p> : <ul className="grid gap-3 md:grid-cols-2">{rentals.map((r) => <li key={r.id}><RentalCard r={r} from={here} /></li>)}</ul>}
       </section>
+      </div>
     </div>
   );
 }

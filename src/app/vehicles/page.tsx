@@ -36,10 +36,10 @@ export default async function VehiclesPage({ searchParams }: { searchParams: Pro
       {vehicles.length === 0 ? (
         <p className="py-8 text-center text-slate-500">No vehicles found.</p>
       ) : (
-        <ul className="space-y-3">
+        <ul className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {vehicles.map((v) => (
             <li key={v.id}>
-              <Link href={withBack(`/vehicles/${v.id}`, here)} className={`flex gap-3 rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200 ${v.is_active ? "" : "opacity-60"}`}>
+              <Link href={withBack(`/vehicles/${v.id}`, here)} className={`card-link flex gap-3 p-3 ${v.is_active ? "" : "opacity-60"}`}>
                 <div className="h-20 w-24 shrink-0 overflow-hidden rounded-lg bg-slate-200">
                   {v.cover_photo_id && (
                     // eslint-disable-next-line @next/next/no-img-element

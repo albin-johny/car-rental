@@ -57,7 +57,7 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
         </p>
       )}
 
-      <form className="grid grid-cols-2 gap-2 rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
+      <form className="grid grid-cols-2 gap-2 card p-3">
         {sp.rental && <input type="hidden" name="rental" value={sp.rental} />}
         {sp.back && <input type="hidden" name="back" value={sp.back} />}
         <div>
@@ -82,12 +82,12 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
       {rows.length === 0 ? (
         <p className="py-8 text-center text-slate-500">No entries.</p>
       ) : (
-        <ul className="space-y-3">
+        <ul className="grid items-start gap-3 lg:grid-cols-2">
           {rows.map((r) => {
             const b = BADGE[r.action] ?? { label: r.action, cls: "bg-slate-100 text-slate-700" };
             const changes: { field: string; from: string | null; to: string | null }[] = r.changes ? JSON.parse(r.changes) : [];
             return (
-              <li key={r.id} className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
+              <li key={r.id} className="card p-3">
                 <div className="flex items-center justify-between gap-2">
                   <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${b.cls}`}>{b.label}</span>
                   <span className="text-xs text-slate-500">{formatIST(r.at)}</span>

@@ -39,7 +39,7 @@ export function InspectionCompare({ rentalId, pickup, ret, back }: { rentalId: s
           Driven <b>{km} km</b> · fuel {fuelDiff === 0 ? "unchanged" : fuelDiff < 0 ? <b>down {-fuelDiff}/8</b> : <b>up {fuelDiff}/8</b>}
         </p>
       )}
-      <div className="grid grid-cols-2 divide-x divide-slate-100 rounded-2xl bg-white text-sm shadow-sm ring-1 ring-slate-200 [&>*]:border-b [&>*]:border-slate-100">
+      <div className="grid grid-cols-2 divide-x divide-slate-100 card text-sm [&>*]:border-b [&>*]:border-slate-100">
         {head("pickup", p)}
         {head("return", r)}
         {field("Odometer", (i) => `${i.odometer_km} km`)}

@@ -36,7 +36,7 @@ export default async function CarReportPage({ params, searchParams }: { params: 
       <p className="-mt-2 font-mono text-sm text-slate-600">{v.registration_number}{!v.is_active && <span className="font-sans text-slate-400"> · inactive</span>}</p>
       <ChipNav label="Report period" chips={PERIOD_KEYS.map((k) => ({ href: chipHref(k), label: PERIOD_CHIP[k], active: period.key === k }))} />
       {period.key === "custom" && (
-        <form className="grid grid-cols-2 gap-2 rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
+        <form className="grid grid-cols-2 gap-2 card p-3">
           <input type="hidden" name="p" value="custom" />
           {sp.back && <input type="hidden" name="back" value={sp.back} />}
           <div><label className="label" htmlFor="from">From</label><input id="from" name="from" type="date" defaultValue={sp.from ?? istDateInput(period.startMs)} required className="input" /></div>
@@ -49,9 +49,9 @@ export default async function CarReportPage({ params, searchParams }: { params: 
         <p className="text-sm text-slate-500">Rent in</p>
         <h2 className="text-lg font-semibold">{period.label}</h2>
       </div>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         {[["Rent", formatINRShort(inPeriod.rent_paise)], ["Rentals", String(inPeriod.rentals)], ["Booked days", String(inPeriod.days)], ["Average per rental", avg === null ? "—" : formatINRShort(avg)]].map(([k, val]) => (
-          <div key={k} className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200"><p className="truncate text-xl font-bold">{val}</p><p className="text-xs text-slate-500">{k}</p></div>
+          <div key={k} className="card p-3"><p className="truncate text-xl font-bold">{val}</p><p className="text-xs text-slate-500">{k}</p></div>
         ))}
       </div>
       <p className="rounded-xl bg-white px-4 py-3 text-sm shadow-sm ring-1 ring-slate-200">
@@ -60,7 +60,7 @@ export default async function CarReportPage({ params, searchParams }: { params: 
 
       <section className="space-y-3">
         <h2 className="font-semibold">Rentals in this period ({rentals.length})</h2>
-        {rentals.length === 0 ? <p className="text-sm text-slate-500">No rentals started in this period.</p> : <ul className="space-y-3">{rentals.map((r) => <li key={r.id}><RentalCard r={r} from={here} /></li>)}</ul>}
+        {rentals.length === 0 ? <p className="text-sm text-slate-500">No rentals started in this period.</p> : <ul className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{rentals.map((r) => <li key={r.id}><RentalCard r={r} from={here} /></li>)}</ul>}
         <Link href={withBack(`/vehicles/${id}`, here)} className="block text-center text-sm text-blue-700">Open vehicle →</Link>
       </section>
     </div>

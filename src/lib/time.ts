@@ -33,3 +33,14 @@ export function relativeDue(iso: string, now = Date.now()): { text: string; over
   const text = m < 60 ? `${m}m` : m < 60 * 24 ? `${Math.round(m / 60)}h` : `${Math.round(m / 1440)}d`;
   return diff < 0 ? { text: `${text} overdue`, overdue: true } : { text: `in ${text}`, overdue: false };
 }
+
+const compactDay = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short" });
+const compactTime = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", hour: "numeric", minute: "2-digit", hour12: true });
+const yearOf = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", year: "numeric" });
+
+/** "15 Oct, 9:42 am"; the year is added only when it isn't the current year (India time). Keeps cards on one line. */
+export function formatISTCompact(iso: string, now = Date.now()): string {
+  const d = new Date(iso);
+  const year = yearOf.format(d) !== yearOf.format(new Date(now)) ? ` ${yearOf.format(d)}` : "";
+  return `${compactDay.format(d)}${year}, ${compactTime.format(d).replace(/\s?(am|pm)/i, (m) => ` ${m.trim().toLowerCase()}`)}`;
+}

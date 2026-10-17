@@ -8,7 +8,7 @@ import { changePasswordAction } from "./actions";
 export const metadata = { title: "Account" };
 
 const row = (href: string, title: string, sub: string) => (
-  <Link href={href} className="flex items-center justify-between rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 active:bg-slate-50">
+  <Link href={href} className="flex items-center justify-between card-link p-4">
     <span><span className="block font-medium">{title}</span><span className="block text-sm text-slate-500">{sub}</span></span>
     <span className="text-xl text-slate-400">›</span>
   </Link>
@@ -17,9 +17,9 @@ const row = (href: string, title: string, sub: string) => (
 export default async function AccountPage() {
   const user = await requireUser();
   return (
-    <div className="space-y-4">
+    <div className="mx-auto w-full space-y-4 md:max-w-2xl">
       <h1 className="text-2xl font-bold">Account</h1>
-      <section className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+      <section className="card p-4">
         <p className="text-lg font-semibold">{user.name}</p>
         <p className="text-sm text-slate-500">{user.email.endsWith("@car-rental.local") ? "Signed in with a username" : user.email}</p>
         <span className="mt-2 inline-block rounded-full bg-blue-50 px-3 py-1 text-xs font-medium capitalize text-blue-700">{user.role}</span>
@@ -33,10 +33,10 @@ export default async function AccountPage() {
         </section>
       )}
 
-      <section className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+      <section className="card p-4">
         <InstallButton />
       </section>
-      <section className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+      <section className="card p-4">
         <PasswordForm action={changePasswordAction} />
       </section>
       <SignOutButton />

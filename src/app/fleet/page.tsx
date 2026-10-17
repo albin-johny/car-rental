@@ -46,14 +46,14 @@ export default async function FleetPage({ searchParams }: { searchParams: Promis
 
   const tile = (label: string, value: number | string, href?: string, danger = false) => {
     const body = (<><p className={`truncate text-2xl font-bold ${danger ? "text-red-600" : ""}`}>{value}</p><p className="text-xs text-slate-500">{label}</p></>);
-    const cls = "rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200";
+    const cls = "card p-3";
     return href ? <Link href={href} className={cls}>{body}</Link> : <div className={cls}>{body}</div>;
   };
 
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-bold">Fleet</h1>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         {tile("Rented now", rented, "/rentals?tab=active")}
         {tile("Available", cards.length - rented)}
         {tile("Upcoming bookings", stats.booked, "/rentals?tab=upcoming")}
@@ -64,7 +64,7 @@ export default async function FleetPage({ searchParams }: { searchParams: Promis
       {dueBack.length > 0 && (
         <section className="space-y-2">
           <h2 className="font-semibold">Due back soon</h2>
-          <ul className="divide-y divide-slate-100 rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
+          <ul className="divide-y divide-slate-100 card ">
             {dueBack.map((r) => {
               const due = relativeDue(r.end_at, now);
               return (
@@ -91,10 +91,10 @@ export default async function FleetPage({ searchParams }: { searchParams: Promis
       {shown.length === 0 ? (
         <p className="py-8 text-center text-slate-500">{q ? "No cars match your search." : "No vehicles here."}</p>
       ) : (
-        <ul className="space-y-3">
+        <ul className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {shown.map((c) => (
             <li key={c.vehicle.id}>
-              <Link href={withBack(`/vehicles/${c.vehicle.id}`, here)} className="flex gap-3 rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200 active:bg-slate-50">
+              <Link href={withBack(`/vehicles/${c.vehicle.id}`, here)} className="flex gap-3 card-link p-3">
                 <div className="h-16 w-20 shrink-0 overflow-hidden rounded-lg bg-slate-200">
                   {c.vehicle.cover_photo_id && (
                     // eslint-disable-next-line @next/next/no-img-element

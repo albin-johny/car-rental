@@ -11,7 +11,7 @@ export function ThumbGrid({ items, variant = "full", adminDeleteLate = false }: 
   const compact = variant === "compact";
   return (
     <>
-      <ol className={compact ? "grid grid-cols-2 gap-1" : "grid grid-cols-2 gap-3"}>
+      <ol className={compact ? "grid grid-cols-2 gap-1" : "grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4"}>
         {items.map((t, i) => (
           <li key={t.id}>
             <div className="relative">

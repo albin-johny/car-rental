@@ -30,7 +30,7 @@ export function ChipNav({ chips, label }: { chips: Chip[]; label: string }) {
           key={c.label}
           href={c.href}
           aria-current={c.active ? "page" : undefined}
-          className={`shrink-0 whitespace-nowrap rounded-full px-4 py-2 ${c.active ? "bg-blue-600 text-white" : "bg-white ring-1 ring-slate-300"}`}
+          className={`chip ${c.active ? "bg-blue-600 text-white shadow-sm" : "bg-white text-slate-700 ring-1 ring-slate-300 hover:bg-slate-50 active:bg-slate-100"}`}
         >
           {c.label}
         </Link>

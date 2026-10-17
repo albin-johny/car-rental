@@ -20,7 +20,7 @@ export default async function NewRentalPage({ searchParams }: { searchParams: Pr
   const pre = options.find((o) => o.id === sp.vehicle)?.id ?? "";
 
   return (
-    <div className="space-y-4">
+    <div className="mx-auto w-full space-y-4 md:max-w-2xl">
       <ScreenHeader title="New rental" back={back} />
       <RentalForm
         action={createRentalAction.bind(null, back)}

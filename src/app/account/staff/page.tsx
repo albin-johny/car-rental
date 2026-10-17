@@ -14,12 +14,13 @@ export default async function StaffPage() {
   return (
     <div className="space-y-5">
       <ScreenHeader title="Staff" back="/account" />
+      <div className="space-y-5 lg:grid lg:grid-cols-[minmax(0,26rem)_1fr] lg:items-start lg:gap-8 lg:space-y-0">
       <AddStaffForm action={createStaffAction} />
       <section className="space-y-3">
         <h2 className="font-semibold">People ({people.length})</h2>
-        <ul className="space-y-3">
+        <ul className="grid items-start gap-3 md:grid-cols-2">
           {people.map((p) => (
-            <li key={p.id} className={`rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 ${p.disabled ? "opacity-70" : ""}`}>
+            <li key={p.id} className={`card p-4 ${p.disabled ? "opacity-70" : ""}`}>
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className="truncate font-medium">{p.name}{p.id === me.id && <span className="font-normal text-slate-500"> (you)</span>}</p>
@@ -38,6 +39,7 @@ export default async function StaffPage() {
           ))}
         </ul>
       </section>
+      </div>
     </div>
   );
 }

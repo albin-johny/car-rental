@@ -22,7 +22,7 @@ export function AddStaffForm({ action }: { action: FormAction }) {
   // Once the person is added, forget the temporary password so it is not left on screen.
   useEffect(() => { if (done) { setPassword(""); setShow(false); } }, [done, state]);
   return (
-    <form action={formAction} key={done ? `ok-${state?.message}` : "form"} className="space-y-3 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+    <form action={formAction} key={done ? `ok-${state?.message}` : "form"} className="space-y-3 card p-4">
       <h2 className="font-semibold">Add a person</h2>
       <div>
         <label className="label" htmlFor="name">Name</label>
@@ -79,11 +79,11 @@ export function StaffActions({
   return (
     <div className="mt-3 space-y-2">
       <div className="flex flex-wrap gap-2 text-sm">
-        <button className="btn btn-secondary min-h-10 py-2" disabled={pending} onClick={() => setResetting((x) => !x)}>Reset password</button>
-        <button className="btn btn-secondary min-h-10 py-2" disabled={pending} onClick={() => run(() => onRole(userId, role === "admin" ? "staff" : "admin"), `Make ${name} ${role === "admin" ? "staff" : "an admin"}?`)}>
+        <button className="btn btn-secondary btn-sm" disabled={pending} onClick={() => setResetting((x) => !x)}>Reset password</button>
+        <button className="btn btn-secondary btn-sm" disabled={pending} onClick={() => run(() => onRole(userId, role === "admin" ? "staff" : "admin"), `Make ${name} ${role === "admin" ? "staff" : "an admin"}?`)}>
           {role === "admin" ? "Make staff" : "Make admin"}
         </button>
-        <button className={`btn min-h-10 py-2 ${disabled ? "btn-secondary" : "btn-danger"}`} disabled={pending} onClick={() => run(() => onToggle(userId, !disabled), disabled ? undefined : `Disable ${name}? They will be signed out and can't sign in until re-enabled.`)}>
+        <button className={`btn btn-sm ${disabled ? "btn-secondary" : "btn-danger"}`} disabled={pending} onClick={() => run(() => onToggle(userId, !disabled), disabled ? undefined : `Disable ${name}? They will be signed out and can't sign in until re-enabled.`)}>
           {disabled ? "Enable" : "Disable"}
         </button>
       </div>

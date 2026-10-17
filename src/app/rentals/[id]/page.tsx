@@ -40,7 +40,9 @@ export default async function RentalPage({ params, searchParams }: { params: Pro
     <div className="space-y-5">
       <ScreenHeader title={r.rental_number} back={back} action={<span className="pr-2"><StatusBadge status={r.status} /></span>} />
 
-      <dl className="divide-y divide-slate-100 rounded-2xl bg-white px-4 shadow-sm ring-1 ring-slate-200">
+      <div className="space-y-5 lg:grid lg:grid-cols-2 lg:items-start lg:gap-8 lg:space-y-0">
+      <div className="space-y-5">
+      <dl className="divide-y divide-slate-100 card px-4">
         {row("Vehicle", <Link className="text-blue-700" href={withBack(`/vehicles/${r.vehicle_id}`, here)}>{r.make} {r.model} · {r.registration_number}</Link>)}
         {row("Renter", <Link className="text-blue-700" href={withBack(`/customers/${r.customer_id}`, here)}>{r.customer_name}</Link>)}
         {row("Phone", <a className="text-blue-700" href={`tel:${r.customer_phone}`}>{r.customer_phone}</a>)}
@@ -56,11 +58,13 @@ export default async function RentalPage({ params, searchParams }: { params: Pro
       <RentalActions id={r.id} back={here} status={r.status} draft={!!(r.status === "booked" ? insp.pickup : insp.return) && !(r.status === "booked" ? insp.pickup?.completed_at : insp.return?.completed_at)} />
 
       {me.role === "admin" && (
-        <Link href={withBack(`/account/audit?rental=${r.id}`, here)} className="flex items-center justify-between rounded-2xl bg-white px-4 py-3 text-sm shadow-sm ring-1 ring-slate-200 active:bg-slate-50">
+        <Link href={withBack(`/account/audit?rental=${r.id}`, here)} className="flex items-center justify-between card-link px-4 py-3 text-sm">
           <span>Change history</span><span className="text-slate-500">{historyCount} {historyCount === 1 ? "entry" : "entries"} ›</span>
         </Link>
       )}
 
+      </div>
+      <div className="space-y-5">
       <InspectionCompare rentalId={r.id} back={here} pickup={insp.pickup} ret={insp.return} />
       {r.status !== "booked" && !insp.pickup && r.status !== "cancelled" && (
         <p className="text-sm text-slate-500">No pickup inspection was recorded (entered as history).</p>
@@ -88,6 +92,8 @@ export default async function RentalPage({ params, searchParams }: { params: Pro
           />
         </section>
       )}
+      </div>
+      </div>
     </div>
   );
 }

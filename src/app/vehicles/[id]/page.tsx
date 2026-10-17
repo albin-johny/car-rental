@@ -52,7 +52,9 @@ export default async function VehiclePage({ params, searchParams }: { params: Pr
           {v.is_active ? "Active" : "Inactive"} · updated {formatIST(v.updated_at)} IST
         </p>
       </div>
-      <Link href={withBack(`/reports/${id}?p=month`, here)} className="block rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200 active:bg-slate-50">
+      <div className="space-y-6 lg:grid lg:grid-cols-2 lg:items-start lg:gap-8 lg:space-y-0">
+      <div className="space-y-6">
+      <Link href={withBack(`/reports/${id}?p=month`, here)} className="block card-link p-3">
         <p className="text-xs text-slate-500">Lifetime rent</p>
         <p className="text-xl font-bold">{inr(life.rent_paise)}</p>
         <p className="text-xs text-slate-500">{life.rentals} rental{life.rentals === 1 ? "" : "s"} that went out · see income report ›</p>
@@ -60,14 +62,18 @@ export default async function VehiclePage({ params, searchParams }: { params: Pr
       <section className="space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="font-semibold">Rentals</h2>
-          <Link href={withBack(`/rentals/new?vehicle=${id}`, here)} className="btn btn-secondary min-h-10 py-2">Book this car</Link>
+          <Link href={withBack(`/rentals/new?vehicle=${id}`, here)} className="btn btn-secondary btn-sm">Book this car</Link>
         </div>
         {rentals.length === 0 ? <p className="text-sm text-slate-500">No rentals yet.</p> : <ul className="space-y-3">{rentals.map((r) => <li key={r.id}><RentalCard r={r} from={here} /></li>)}</ul>}
         {rentals.length > 0 && <Link href={`/rentals?vehicle=${id}&tab=all`} className="block text-center text-sm text-blue-700">All rentals for this car →</Link>}
       </section>
       <PhotoManager vehicleId={id} photos={photos.map((p) => ({ id: p.id }))} max={MAX_PHOTOS} />
+      </div>
+      <div className="space-y-6">
       <VehicleForm action={updateVehicleAction.bind(null, id)} initial={initial} submitLabel="Save changes" />
       {user.role === "admin" && <ActiveToggle id={id} active={!!v.is_active} />}
+      </div>
+      </div>
     </div>
   );
 }

@@ -24,10 +24,10 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
       {customers.length === 0 ? (
         <p className="py-8 text-center text-slate-500">No customers yet. They are added when you save a rental.</p>
       ) : (
-        <ul className="space-y-2">
+        <ul className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
           {customers.map((c) => (
             <li key={c.id}>
-              <Link href={withBack(`/customers/${c.id}`, here)} className="flex items-center justify-between rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200 active:bg-slate-50">
+              <Link href={withBack(`/customers/${c.id}`, here)} className="flex items-center justify-between card-link p-3">
                 <div><p className="font-medium">{c.name}</p><p className="text-sm text-slate-500">{c.phone}</p></div>
                 <span className="text-sm text-slate-500">{c.rental_count} rental{c.rental_count === 1 ? "" : "s"}</span>
               </Link>

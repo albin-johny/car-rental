@@ -7,6 +7,9 @@ Everything here can be done without a developer unless it says otherwise.
 - **Your data:** a Cloudflare database (D1, named `car-rental`) and a private photo store (R2, named `car-rental-photos`). Both are in the Cloudflare account that owns the app.
 - **The code:** the GitHub repository. Whoever owns the Cloudflare account and the GitHub repository owns the app.
 
+## Phones and tablets
+The app works on phones and tablets (iPad). On a phone the five sections are along the bottom; on an iPad they are down the left side, and screens use the extra width (for example a rental shows its details beside the pickup and return photos). Add it to the home screen from the browser's Share menu on iPhone and iPad, or the install button under **Account**.
+
 ## Daily use
 - **Fleet** shows who has which car right now, what's overdue and due back soon, and how much rent came in this month.
 - **Rentals → + New** books a car. Type the renter's name and phone (earlier customers are suggested). The car can't be double-booked; the app will tell you if the dates clash.

@@ -67,7 +67,9 @@ export default async function InspectPage({ params, searchParams }: { params: Pr
     <div className="space-y-5">
       <ScreenHeader title={title} back={back} />
       <p className="text-sm text-slate-600">{car} · {rental.customer_name}</p>
-      <dl className="divide-y divide-slate-100 rounded-2xl bg-white px-4 shadow-sm ring-1 ring-slate-200">
+      <div className="space-y-5 lg:grid lg:grid-cols-[minmax(0,26rem)_1fr] lg:items-start lg:gap-8 lg:space-y-0">
+      <div className="space-y-5">
+      <dl className="divide-y divide-slate-100 card px-4">
         {[
           ["Completed", formatIST(insp.completed_at)],
           ["By", insp.inspected_by_name],
@@ -82,6 +84,27 @@ export default async function InspectPage({ params, searchParams }: { params: Pr
         )}
       </dl>
 
+      {user.role === "admin" && insp.override_reason && (
+        <section className="space-y-2 rounded-2xl bg-amber-50 p-3 ring-1 ring-amber-200">
+          <h2 className="font-semibold">Add photos later (admin)</h2>
+          <p className="text-sm text-slate-600">This inspection was completed without photos. Photos you add now are marked as added later.</p>
+          <LatePhotoUploader inspectionId={insp.id} count={photos.length} />
+        </section>
+      )}
+
+      <section className="space-y-3">
+        <h2 className="font-semibold">Corrections</h2>
+        <p className="text-sm text-slate-500">A completed inspection can't be edited. Add a dated note instead.</p>
+        {addenda.map((a) => (
+          <div key={a.id} className="rounded-xl bg-white p-3 text-sm shadow-sm ring-1 ring-slate-200">
+            <p className="whitespace-pre-wrap">{a.note}</p>
+            <p className="mt-1 text-xs text-slate-500">{a.created_by_name} · {formatIST(a.created_at)}</p>
+          </div>
+        ))}
+        <AddendumForm action={addAddendumAction.bind(null, insp.id, id)} />
+      </section>
+      </div>
+      <div>
       <section className="space-y-3">
         <h2 className="font-semibold">Photos ({photos.length})</h2>
         {photos.length === 0 ? (
@@ -103,26 +126,8 @@ export default async function InspectPage({ params, searchParams }: { params: Pr
           />
         )}
       </section>
-
-      {user.role === "admin" && insp.override_reason && (
-        <section className="space-y-2 rounded-2xl bg-amber-50 p-3 ring-1 ring-amber-200">
-          <h2 className="font-semibold">Add photos later (admin)</h2>
-          <p className="text-sm text-slate-600">This inspection was completed without photos. Photos you add now are marked as added later.</p>
-          <LatePhotoUploader inspectionId={insp.id} count={photos.length} />
-        </section>
-      )}
-
-      <section className="space-y-3">
-        <h2 className="font-semibold">Corrections</h2>
-        <p className="text-sm text-slate-500">A completed inspection can't be edited. Add a dated note instead.</p>
-        {addenda.map((a) => (
-          <div key={a.id} className="rounded-xl bg-white p-3 text-sm shadow-sm ring-1 ring-slate-200">
-            <p className="whitespace-pre-wrap">{a.note}</p>
-            <p className="mt-1 text-xs text-slate-500">{a.created_by_name} · {formatIST(a.created_at)}</p>
-          </div>
-        ))}
-        <AddendumForm action={addAddendumAction.bind(null, insp.id, id)} />
-      </section>
+      </div>
+      </div>
     </div>
   );
 }

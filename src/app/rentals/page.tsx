@@ -42,7 +42,7 @@ export default async function RentalsPage({ searchParams }: { searchParams: Prom
       {rentals.length === 0 ? (
         <p className="py-8 text-center text-slate-500">No rentals found.</p>
       ) : (
-        <ul className="space-y-3">{rentals.map((r) => <li key={r.id}><RentalCard r={r} from={here} /></li>)}</ul>
+        <ul className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{rentals.map((r) => <li key={r.id}><RentalCard r={r} from={here} /></li>)}</ul>
       )}
       <p className="text-center text-sm"><Link href={withBack("/customers", here)} className="text-blue-700">View customers →</Link></p>
     </div>

@@ -10,7 +10,7 @@ export default async function NewVehiclePage({ searchParams }: { searchParams: P
   await requireUser();
   const back = safeBack((await searchParams).back, "/vehicles");
   return (
-    <div className="space-y-4">
+    <div className="mx-auto w-full space-y-4 md:max-w-2xl">
       <ScreenHeader title="Add vehicle" back={back} />
       <VehicleForm
         action={createVehicleAction.bind(null, back)}
