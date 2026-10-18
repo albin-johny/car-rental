@@ -1,0 +1,53 @@
+@import "tailwindcss";
+
+/* ---------- base ---------- */
+html {
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+  scroll-padding-bottom: 7rem; /* keep focused fields clear of the fixed tab bar */
+  font-family: ui-sans-serif, system-ui, -apple-system, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  text-rendering: optimizeLegibility;
+}
+button, a, [role="button"], summary, label[for], select { touch-action: manipulation; }
+button, [role="button"], summary, select { cursor: pointer; }
+body { @apply bg-slate-50 text-slate-900 antialiased; }
+h1, h2 { letter-spacing: -0.01em; }
+
+/* Visible keyboard focus everywhere (iPad keyboards, desktop), without a ring on every tap. */
+:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+input:focus-visible, select:focus-visible, textarea:focus-visible { outline: none; }
+
+/* ---------- surfaces ---------- */
+.card { @apply rounded-2xl bg-white shadow-sm ring-1 ring-slate-200; }
+.card-link { @apply cursor-pointer rounded-2xl bg-white shadow-sm ring-1 ring-slate-200 transition duration-150 hover:shadow-md hover:ring-slate-300 active:bg-slate-50; }
+
+/* ---------- buttons ---------- */
+.btn {
+  @apply inline-flex min-h-12 cursor-pointer select-none items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-base font-semibold text-white shadow-sm transition duration-150;
+  @apply hover:bg-blue-700 active:scale-[0.98] active:bg-blue-800 focus-visible:outline-offset-2;
+  @apply disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none disabled:hover:bg-blue-600 disabled:active:scale-100;
+}
+.btn-secondary { @apply bg-white text-slate-800 ring-1 ring-inset ring-slate-300 hover:bg-slate-50 active:bg-slate-100 disabled:hover:bg-white; }
+.btn-danger { @apply bg-red-600 hover:bg-red-700 active:bg-red-800 disabled:hover:bg-red-600; }
+.btn-sm { @apply min-h-10 gap-1.5 rounded-lg px-4 py-2 text-sm; }
+
+/* ---------- forms ---------- */
+.input {
+  @apply min-h-12 w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-base text-slate-900 shadow-xs outline-none transition duration-150;
+  @apply placeholder:text-slate-400 hover:border-slate-400 focus:border-blue-600 focus:ring-4 focus:ring-blue-600/15;
+  @apply disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500;
+}
+select.input {
+  appearance: none;
+  padding-right: 2.5rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.85rem center;
+}
+textarea.input { @apply min-h-24; }
+.label { @apply mb-1.5 block text-sm font-medium text-slate-700; }
+.err { @apply mt-1.5 text-sm font-medium text-red-600; }
+
+/* ---------- small pieces ---------- */
+.badge { @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium; }
+.chip { @apply inline-flex shrink-0 cursor-pointer items-center md:min-h-11 whitespace-nowrap rounded-full px-4 py-2 text-sm font-medium transition duration-150; }
