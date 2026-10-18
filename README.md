@@ -43,7 +43,7 @@ There is no customer-facing portal and no customer login.
 - **Backups: Cloudflare D1 Time Travel only** (automatic, restore to any minute in the last 30 days). No scheduled email export. The restore steps were tested on a throwaway database; see [docs/OPERATIONS.md](docs/OPERATIONS.md).
 - **Audit log covers rentals and inspections only.**
 - **Phones and tablets are both first-class.** Phones: one column with a bottom tab bar. From 768px (iPad and up): a left navigation rail (icons from 768px, icons + labels + signed-in user from 1024px), wider content, card grids, and two-column detail screens. Touch targets are at least 44px on tablets.
-- Responsive PWA, installable; **no offline editing**. Nothing private is cached by the service worker.
+- Responsive PWA, installable; **no offline editing**. The service worker caches only static app files (`/_next/static/`, `/icons/`); pages, data and photos are never cached by it.
 - Roles: `admin` and `staff` only.
 - `robots.txt` / `noindex` is not security. Every page and API route checks the session itself.
 
@@ -54,7 +54,7 @@ There is no customer-facing portal and no customer login.
 - Add and edit vehicles
 - Deactivate / reactivate a vehicle (**admin only**; vehicles are never hard-deleted)
 - Photos: up to 8 per vehicle, resized on the phone to ≤ ~300 KB JPEG, stored in a private R2 bucket and served only through an authenticated route
-- Installable PWA (manifest + minimal service worker; nothing private is cached)
+- Installable PWA (manifest with Home-screen shortcuts; the service worker caches only the app's own static files)
 - Mobile app layout: bottom tab bar (Vehicles, Add, Account), Account tab with user details, sign out and an **Add to Home Screen** button (native prompt on Android/Chrome, instructions on iPhone)
 
 | Action | staff | admin |
@@ -140,6 +140,18 @@ Migrations `0008` and `0009`. Under each vehicle: **Service history**.
 - **Cost (optional):** a rupee amount per entry, stored as integer paise like all money. Each car shows its total service spend and each entry its cost.
 - **Bills (optional):** up to 5 files per entry, each a **photo** (resized on the phone to stay legible, JPEG up to 600 KB) or a **PDF** (up to 3 MB). The file type is checked from its real bytes on the server, not from its label. Bills are stored privately in R2 under `service/` and only served through a signed-in route; they are **never auto-deleted** (only `inspections/` photos expire). Photos open in the in-app viewer; PDFs open in the browser's PDF view. Bills can be added, or removed, by whoever may edit the entry (the author for 24 hours, admins anytime); deleting an entry deletes its files.
 
+## Vehicle papers (insurance, PUC, registration)
+
+Migration `0011`. Optional on **Add vehicle** (valid-until date + up to 5 photos/PDFs per paper) and always available under the **Documents** tile on the vehicle page. Each paper shows a green / amber (within 30 days) / red (expired) badge; renewals are added as a new entry and the older ones stay under "Show earlier". Files live privately in R2 under `vehicle-docs/` (never auto-deleted) and are served only through a signed-in route (`/api/vehicle-doc-files/[id]`). Permissions match service entries (author for 24 h, admins anytime). The vehicle and its paper rows are saved in one database batch; the files are uploaded right after.
+
+## Performance and app feel
+
+- `src/app/loading.tsx` shows a skeleton the instant a screen is tapped.
+- All private image/file routes send `Cache-Control: private, max-age=31536000, immutable` (ids are never reused); images use `loading="lazy" decoding="async"`.
+- `public/sw.js` caches only `/_next/static/` and `/icons/` (cache `static-v1`; bump the name to force a refresh) and is registered **only in production builds**, so `npm run dev` never serves stale files. Use `npm run preview` to test it.
+- Manifest has Home-screen shortcuts (New rental, Fleet). Tap handling, safe-area padding and 44px+ targets are in `globals.css` and the nav components.
+- Not done (ideas): see the performance backlog in the handover notes below.
+
 ## Roadmap
 
 Review every diff and run the checks before merging. Never edit an applied migration; add a new numbered file.
@@ -148,12 +160,13 @@ Review every diff and run the checks before merging. Never edit an applied migra
 - [ ] Manual pass on a real phone, a tablet and a desktop (camera and gallery photo flow, photo viewer swipe, chips, install to home screen, Safari)
 - [ ] Import the real fleet data and verify it
 - [ ] Billing / usage alert and the 365-day `inspections/` lifecycle rule set in Cloudflare
+- [ ] Optional: performance backlog (photo thumbnails made on the phone at upload, D1 placement and slow-query review, cookie-cached sessions, optimistic updates, view transitions, bottom sheets)
 - [ ] Optional: service due reminders (by date or km), a fleet-wide service cost report, rate limiting on photo and bill uploads (3 trusted staff, so low priority)
 - [ ] Hand ownership to the customer (Cloudflare account, GitHub, domain); rotate the secret; remove developer access
 
 ### Phase 5: optional, after launch
 - [x] Service history (above)
-- [ ] Service due reminders, registration and insurance expiry reminders, expenses per vehicle, printable PDF reports
+- [ ] Service due reminders, insurance / PUC / registration expiry reminders (the papers and their dates are already stored), expenses per vehicle, printable PDF reports
 
 ---
 
