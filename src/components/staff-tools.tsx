@@ -1,5 +1,6 @@
 "use client";
 import { useActionState, useEffect, useState, useTransition } from "react";
+import { useConfirm } from "./confirm-sheet";
 import type { FormState } from "@/app/vehicles/actions";
 
 /** Easy to read out loud: no 0/O, 1/l/I. */
@@ -70,8 +71,9 @@ export function StaffActions({
   const [state, formAction, resetPending] = useActionState(resetAction, null);
   const [pw, setPw] = useState("");
 
-  const run = (fn: () => Promise<{ error?: string }>, confirmText?: string) => {
-    if (confirmText && !confirm(confirmText)) return;
+  const ask = useConfirm();
+  const run = async (fn: () => Promise<{ error?: string }>, confirmText?: string) => {
+    if (confirmText && !(await ask(confirmText, { confirmLabel: "Yes, continue", danger: true }))) return;
     setError("");
     start(async () => { const r = await fn(); if (r.error) setError(r.error); });
   };

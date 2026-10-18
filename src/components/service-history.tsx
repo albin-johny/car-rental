@@ -1,5 +1,6 @@
 "use client";
 import { useActionState, useEffect, useRef, useState, useTransition } from "react";
+import { useConfirm } from "./confirm-sheet";
 import { useRouter } from "next/navigation";
 import type { FormState } from "@/app/vehicles/actions";
 import { ServiceItemsInput } from "./service-items-input";
@@ -26,6 +27,7 @@ function ServiceForm({
   existingBills?: BillRef[];
 }) {
   const router = useRouter();
+  const ask = useConfirm();
   const [state, formAction, pending] = useActionState(action, null);
   const [date, setDate] = useState(initial.serviced_on);
   const [km, setKm] = useState(initial.odometer_km);
@@ -66,7 +68,7 @@ function ServiceForm({
     setStaged((s) => [...s, ...ok].slice(0, MAX_BILLS_PER_ENTRY - existingBills.length));
   };
   const removeExisting = async (id: string) => {
-    if (!confirm("Remove this bill?")) return;
+    if (!(await ask("Remove this bill?", { confirmLabel: "Remove", danger: true }))) return;
     const res = await fetch(`/api/service-bills/${id}`, { method: "DELETE" });
     if (!res.ok) setBillError(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? "Could not remove the bill");
     router.refresh();
@@ -184,6 +186,7 @@ export function ServiceHistory({
   deleteAction: (recordId: string, vehicleId: string) => Promise<{ error?: string }>;
 }) {
   const router = useRouter();
+  const ask = useConfirm();
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -193,8 +196,8 @@ export function ServiceHistory({
   const [pending, start] = useTransition();
   const shown = showAll ? entries : entries.slice(0, RECENT);
 
-  const remove = (id: string) => {
-    if (!confirm("Delete this service entry (and its bills)?")) return;
+  const remove = async (id: string) => {
+    if (!(await ask("Delete this service entry (and its bills)?", { confirmLabel: "Delete", danger: true }))) return;
     setError("");
     start(async () => { const r = await deleteAction(id, vehicleId); if (r.error) setError(r.error); });
   };

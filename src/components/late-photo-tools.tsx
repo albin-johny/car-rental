@@ -1,5 +1,6 @@
 "use client";
 import { useRef, useState } from "react";
+import { useConfirm } from "./confirm-sheet";
 import { useRouter } from "next/navigation";
 import { MAX_INSPECTION_PHOTOS } from "@/lib/inspection-constants";
 import { uploadInspectionPhotos } from "@/lib/inspection-upload";
@@ -42,12 +43,13 @@ export function LatePhotoUploader({ inspectionId, count }: { inspectionId: strin
 
 export function DeleteLatePhotoButton({ photoId, label }: { photoId: string; label: string }) {
   const router = useRouter();
+  const ask = useConfirm();
   return (
     <button
       type="button"
       aria-label={label}
       onClick={async () => {
-        if (!confirm("Delete this photo?")) return;
+        if (!(await ask("Delete this photo?", { confirmLabel: "Delete", danger: true }))) return;
         const res = await fetch(`/api/inspection-photos/${photoId}`, { method: "DELETE" });
         if (!res.ok) alert("Could not delete the photo");
         router.refresh();

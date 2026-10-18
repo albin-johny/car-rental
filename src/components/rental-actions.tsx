@@ -1,5 +1,6 @@
 "use client";
 import { useState, useTransition } from "react";
+import { useConfirm } from "./confirm-sheet";
 import { transitionAction } from "@/app/rentals/actions";
 import { StartInspectionButton } from "./start-inspection-button";
 import type { RentalStatus } from "@/lib/rental-constants";
@@ -9,9 +10,10 @@ export type InspectionState = { pickup: "none" | "draft" | "done"; return: "none
 export function RentalActions({ id, status, inspections, back }: { id: string; status: RentalStatus; inspections: InspectionState; back: string }) {
   const [pending, start] = useTransition();
   const [error, setError] = useState("");
+  const ask = useConfirm();
   if (status === "cancelled") return null;
-  const cancel = () => {
-    if (!confirm("Cancel this booking?")) return;
+  const cancel = async () => {
+    if (!(await ask("Cancel this booking?", { confirmLabel: "Cancel booking", cancelLabel: "Keep it", danger: true }))) return;
     setError("");
     start(async () => {
       const r = await transitionAction(id, "cancel");

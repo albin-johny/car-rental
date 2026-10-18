@@ -1,5 +1,6 @@
 "use client";
 import { useActionState, useEffect, useRef, useState } from "react";
+import { useConfirm } from "./confirm-sheet";
 import { useRouter } from "next/navigation";
 import { uploadInspectionPhotos } from "@/lib/inspection-upload";
 import { PhotoViewer } from "./photo-viewer";
@@ -23,6 +24,7 @@ export function InspectionForm({
   recordOnly: "out" | "returned" | null; // the rental is already past this step: only the record is added, its status is not changed
 }) {
   const router = useRouter();
+  const ask = useConfirm();
   const [state, formAction, pending] = useActionState(action, null);
   const [odo, setOdo] = useState(String(initial.odometer_km));
   const [fuel, setFuel] = useState(initial.fuel_eighths);
@@ -71,7 +73,7 @@ export function InspectionForm({
   }
 
   async function remove(id: string) {
-    if (!confirm("Delete this photo?")) return;
+    if (!(await ask("Delete this photo?", { confirmLabel: "Delete", danger: true }))) return;
     const res = await fetch(`/api/inspection-photos/${id}`, { method: "DELETE" });
     if (!res.ok) setPhotoError("Could not delete the photo");
     router.refresh();

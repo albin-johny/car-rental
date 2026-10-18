@@ -1,11 +1,13 @@
 "use client";
 import { useRef, useState } from "react";
+import { useConfirm } from "./confirm-sheet";
 import { useRouter } from "next/navigation";
 import { compressImage, makeThumb } from "@/lib/compress-image";
 import { PhotoViewer } from "./photo-viewer";
 
 export function PhotoManager({ vehicleId, photos, max, showTitle = true }: { vehicleId: string; photos: { id: string }[]; max: number; showTitle?: boolean }) {
   const router = useRouter();
+  const ask = useConfirm();
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -38,7 +40,7 @@ export function PhotoManager({ vehicleId, photos, max, showTitle = true }: { veh
   }
 
   async function remove(id: string) {
-    if (!confirm("Delete this photo?")) return;
+    if (!(await ask("Delete this photo?", { confirmLabel: "Delete", danger: true }))) return;
     const res = await fetch(`/api/photos/${id}`, { method: "DELETE" });
     if (!res.ok) setError("Could not delete photo");
     router.refresh();

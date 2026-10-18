@@ -1,5 +1,6 @@
 "use client";
 import { useActionState, useEffect, useRef, useState, useTransition } from "react";
+import { useConfirm } from "./confirm-sheet";
 import { useRouter } from "next/navigation";
 import type { FormState } from "@/app/vehicles/actions";
 import { DocFilePicker } from "./doc-file-picker";
@@ -16,8 +17,9 @@ function Files({ files, canModify, onRemoved }: { files: DocFileRef[]; canModify
   const [open, setOpen] = useState<number | null>(null);
   const [, start] = useTransition();
   const images = files.filter((f) => f.content_type === "image/jpeg");
-  const remove = (id: string) => {
-    if (!confirm("Remove this file?")) return;
+  const ask = useConfirm();
+  const remove = async (id: string) => {
+    if (!(await ask("Remove this file?", { confirmLabel: "Remove", danger: true }))) return;
     start(async () => { await fetch(`/api/vehicle-doc-files/${id}`, { method: "DELETE" }); onRemoved(); });
   };
   if (!files.length) return <p className="text-sm text-slate-500">No file attached yet.</p>;
@@ -132,8 +134,9 @@ function TypeRow({ type, docs, today, vehicleId, addAction, updateAction, delete
   const done = (n?: string) => { setMode(null); setNotice(n ?? ""); router.refresh(); };
   const st = cur ? docStatus(cur.valid_until, today) : null;
 
-  const del = (id: string) => {
-    if (!confirm("Delete this paper and its files?")) return;
+  const ask = useConfirm();
+  const del = async (id: string) => {
+    if (!(await ask("Delete this paper and its files?", { confirmLabel: "Delete", danger: true }))) return;
     start(async () => { const r = await deleteAction(id, vehicleId); if (r.error) setNotice(r.error); else router.refresh(); });
   };
 

@@ -148,7 +148,8 @@ Migration `0011`. Optional on **Add vehicle** (valid-until date + up to 5 photos
 
 - `src/app/loading.tsx` shows a skeleton the instant a screen is tapped.
 - All private image/file routes send `Cache-Control: private, max-age=31536000, immutable` (ids are never reused); images use `loading="lazy" decoding="async"`.
-- `public/sw.js` caches only `/_next/static/` and `/icons/` (cache `static-v1`; bump the name to force a refresh) and is registered **only in production builds**, so `npm run dev` never serves stale files. Use `npm run preview` to test it.
+- `public/sw.js` caches only `/_next/static/` (hashed files; cache `static-v2`; bump the name to force a refresh) and is registered **only in production builds**, so `npm run dev` never serves stale files. Use `npm run preview` to test it.
+- **App icon:** the source artwork is `design/app-icon-source.png`; run `node scripts/make-icons.mjs` to regenerate `public/icons/` (192, 512, a 180px Apple icon and a padded 512 maskable icon for Android). Icons must be full-bleed squares; the phone adds its own rounded corners.
 - Manifest has Home-screen shortcuts (New rental, Fleet). Tap handling, safe-area padding and 44px+ targets are in `globals.css` and the nav components.
 - Not done (ideas): see the performance backlog in the handover notes below.
 
