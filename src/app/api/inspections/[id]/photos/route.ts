@@ -1,4 +1,6 @@
 import { getUser } from "@/lib/session";
+import { putThumb } from "@/lib/photo-thumbs";
+import { env } from "@/lib/env";
 import { addInspectionPhoto, reorderInspectionPhotos } from "@/lib/inspections";
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -10,6 +12,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (!(file instanceof File)) return Response.json({ error: "No photo provided" }, { status: 400 });
   const r = await addInspectionPhoto(id, await file.arrayBuffer(), user);
   if ("error" in r) return Response.json({ error: r.error }, { status: r.status ?? 400 });
+  await putThumb(env().PHOTOS, r.key, form?.get("thumb"));
   return Response.json({ id: r.id }, { status: 201 });
 }
 

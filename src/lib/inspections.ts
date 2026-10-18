@@ -5,6 +5,7 @@ import { MAX_PHOTO_BYTES } from "./vehicle-constants";
 import { MAX_INSPECTION_PHOTOS, MIN_PHOTOS, TYPE_LABEL, fuelLabel, type InspectionType } from "./inspection-constants";
 import { auditStatement, type AuditChange } from "./audit";
 import { formatIST, istInputToIso } from "./time";
+import { deleteThumb } from "./photo-thumbs";
 import type { RentalStatus } from "./rental-constants";
 
 type Actor = { id: string; name: string; role: "admin" | "staff" };
@@ -157,7 +158,7 @@ export async function saveDraft(id: string, v: Readings): Promise<Result> {
  */
 export async function addInspectionPhoto(
   inspectionId: string, bytes: ArrayBuffer, user: Actor,
-): Promise<Result<{ id: string }> & { status?: number }> {
+): Promise<Result<{ id: string; key: string }> & { status?: number }> {
   const { DB, PHOTOS } = env();
   if (bytes.byteLength === 0 || bytes.byteLength > MAX_PHOTO_BYTES) return { error: `Photo must be under ${MAX_PHOTO_BYTES / 1024} KB`, status: 413 };
   const head = new Uint8Array(bytes, 0, 3);
@@ -200,7 +201,7 @@ export async function addInspectionPhoto(
     await PHOTOS.delete(key);
     throw e;
   }
-  return { ok: true, id };
+  return { ok: true, id, key };
 }
 
 /** Saves the order staff chose. `ids` must be exactly the inspection's photos, in the new order. */
@@ -246,6 +247,7 @@ export async function deleteInspectionPhoto(photoId: string, user: Actor): Promi
     await del.run();
   }
   await PHOTOS.delete(row.r2_key);
+  await deleteThumb(PHOTOS, row.r2_key);
   return { ok: true };
 }
 

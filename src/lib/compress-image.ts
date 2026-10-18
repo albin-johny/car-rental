@@ -8,6 +8,11 @@ function toBlob(canvas: HTMLCanvasElement, quality: number) {
   return new Promise<Blob | null>((res) => canvas.toBlob(res, "image/jpeg", quality));
 }
 
+/** A small preview (~360px) for lists and grids; never throws, returns null if it can't be made. */
+export async function makeThumb(file: File): Promise<Blob | null> {
+  return compressImage(file, { maxSide: 360, targetBytes: 30 * 1024 }).catch(() => null);
+}
+
 export async function compressImage(file: File, opts: CompressOptions = {}): Promise<Blob> {
   const targetBytes = opts.targetBytes ?? TARGET_BYTES;
   const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" }).catch(() => null);

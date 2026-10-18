@@ -1,5 +1,6 @@
 import { env } from "@/lib/env";
 import { getUser } from "@/lib/session";
+import { putThumb } from "@/lib/photo-thumbs";
 import { MAX_PHOTOS, MAX_PHOTO_BYTES, getVehicle } from "@/lib/vehicles";
 
 const json = (body: unknown, status = 200) => Response.json(body, { status });
@@ -38,5 +39,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     await PHOTOS.delete(key); // don't leave an orphan object
     throw e;
   }
+  await putThumb(PHOTOS, key, form?.get("thumb"));
   return json({ id: photoId }, 201);
 }

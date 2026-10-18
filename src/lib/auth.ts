@@ -25,7 +25,9 @@ export function getAuth() {
     // On Cloudflare the client address is in cf-connecting-ip (set by Cloudflare, not forgeable by the client),
     // so login rate limits apply per person instead of one shared bucket.
     advanced: { ipAddress: { ipAddressHeaders: ["cf-connecting-ip"] } },
-    session: { expiresIn: 60 * 60 * 24 * 30, cookieCache: { enabled: false } },
+    session: { expiresIn: 60 * 60 * 24 * 30, // A signed cookie remembers the session for 10 minutes, so most requests skip the database lookup.
+    // Trade-off: a disabled user or a role change can take up to 10 minutes to show up on a device that already has the cookie.
+    cookieCache: { enabled: true, maxAge: 60 * 10 } },
     databaseHooks: {
       session: {
         create: {

@@ -1,4 +1,4 @@
-import { compressImage } from "./compress-image";
+import { compressImage, makeThumb } from "./compress-image";
 
 /** Client-side: shrink each photo on the phone, then upload them one by one. Throws a readable message on failure. */
 export async function uploadInspectionPhotos(
@@ -10,6 +10,8 @@ export async function uploadInspectionPhotos(
     const blob = await compressImage(file);
     const fd = new FormData();
     fd.set("photo", blob, "photo.jpg");
+    const thumb = await makeThumb(file);
+    if (thumb) fd.set("thumb", thumb, "thumb.jpg");
     const res = await fetch(`/api/inspections/${inspectionId}/photos`, { method: "POST", body: fd });
     if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? "Upload failed, try again");
   }

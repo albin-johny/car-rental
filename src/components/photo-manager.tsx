@@ -1,7 +1,7 @@
 "use client";
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { compressImage } from "@/lib/compress-image";
+import { compressImage, makeThumb } from "@/lib/compress-image";
 import { PhotoViewer } from "./photo-viewer";
 
 export function PhotoManager({ vehicleId, photos, max, showTitle = true }: { vehicleId: string; photos: { id: string }[]; max: number; showTitle?: boolean }) {
@@ -24,6 +24,8 @@ export function PhotoManager({ vehicleId, photos, max, showTitle = true }: { veh
         const blob = await compressImage(file);
         const fd = new FormData();
         fd.set("photo", blob, "photo.jpg");
+        const thumb = await makeThumb(file);
+        if (thumb) fd.set("thumb", thumb, "thumb.jpg");
         const res = await fetch(`/api/vehicles/${vehicleId}/photos`, { method: "POST", body: fd });
         if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? "Upload failed");
       }
@@ -50,7 +52,7 @@ export function PhotoManager({ vehicleId, photos, max, showTitle = true }: { veh
           <div key={p.id} className="relative overflow-hidden rounded-lg bg-slate-200">
             <button type="button" onClick={() => setViewing(i)} aria-label={`Open photo ${i + 1} of ${photos.length}`} className="block w-full">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={`/api/photos/${p.id}`} alt={`Vehicle photo ${i + 1}`} className="aspect-[4/3] w-full object-cover" loading="lazy" decoding="async" />
+              <img src={`/api/photos/${p.id}?t=1`} alt={`Vehicle photo ${i + 1}`} className="aspect-[4/3] w-full object-cover" loading="lazy" decoding="async" />
             </button>
             <button
               onClick={() => remove(p.id)}

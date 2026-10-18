@@ -104,7 +104,7 @@ export default async function VehiclePage({ params, searchParams }: { params: Pr
             <span className="inline-flex items-center gap-1.5 align-middle">
               {photos.slice(0, 4).map((p) => (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img key={p.id} src={`/api/photos/${p.id}`} alt="" className="h-10 w-10 rounded-md bg-slate-200 object-cover" loading="lazy" decoding="async" />
+                <img key={p.id} src={`/api/photos/${p.id}?t=1`} alt="" className="h-10 w-10 rounded-md bg-slate-200 object-cover" loading="lazy" decoding="async" />
               ))}
               {photos.length > 4 && <span className="text-xs text-slate-500">+{photos.length - 4}</span>}
             </span>
