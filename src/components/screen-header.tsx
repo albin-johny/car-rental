@@ -11,6 +11,7 @@ export function ScreenHeader({ title, back, action }: { title: string; back: str
         <Link
           href={back}
           aria-label="Go back"
+          transitionTypes={["nav-back"]}
           className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full bg-slate-100 text-slate-800 shadow-sm ring-1 ring-slate-200 transition duration-150 hover:bg-slate-200 active:scale-95 active:bg-slate-300"
         >
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>

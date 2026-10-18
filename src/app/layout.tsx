@@ -3,6 +3,7 @@ import "./globals.css";
 import { getUser } from "@/lib/session";
 import { BottomNav } from "@/components/bottom-nav";
 import { SideNav } from "@/components/side-nav";
+import { PullToRefresh } from "@/components/pull-to-refresh";
 import { RegisterSW } from "@/components/register-sw";
 
 export const metadata: Metadata = {
@@ -19,6 +20,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html lang="en-IN">
       <body>
         <RegisterSW />
+        {user && <PullToRefresh />}
         {user && <SideNav name={user.name} role={user.role} />}
         {/* Phones: one column above the tab bar. Tablets and up: content sits to the right of the side rail and uses the width. */}
         <div className={user ? "md:pl-20 lg:pl-60" : ""}>
