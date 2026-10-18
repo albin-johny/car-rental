@@ -150,6 +150,7 @@ Migration `0011`. Optional on **Add vehicle** (valid-until date + up to 5 photos
 - All private image/file routes send `Cache-Control: private, max-age=31536000, immutable` (ids are never reused); images use `loading="lazy" decoding="async"`.
 - `public/sw.js` caches only `/_next/static/` (hashed files; cache `static-v2`; bump the name to force a refresh) and is registered **only in production builds**, so `npm run dev` never serves stale files. Use `npm run preview` to test it.
 - **App icon:** the source artwork is `design/app-icon-source.png`; run `node scripts/make-icons.mjs` to regenerate `public/icons/` (192, 512, a 180px Apple icon and a padded 512 maskable icon for Android). Icons must be full-bleed squares; the phone adds its own rounded corners.
+- **Launch screens (iOS):** `public/splash/` holds one image per iPhone/iPad size (icon on the light app background), listed in `src/lib/splash-screens.json` and wired in `src/app/layout.tsx`. The same script regenerates them. To support a new device, add its size to the JSON and rerun `node scripts/make-icons.mjs`. Android builds its launch screen from the manifest, so it needs nothing extra.
 - Manifest has Home-screen shortcuts (New rental, Fleet). Tap handling, safe-area padding and 44px+ targets are in `globals.css` and the nav components.
 - Not done (ideas): see the performance backlog in the handover notes below.
 

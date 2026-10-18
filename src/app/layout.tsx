@@ -5,12 +5,22 @@ import { BottomNav } from "@/components/bottom-nav";
 import { SideNav } from "@/components/side-nav";
 import { PullToRefresh } from "@/components/pull-to-refresh";
 import { ConfirmProvider } from "@/components/confirm-sheet";
+import splashScreens from "@/lib/splash-screens.json";
 import { RegisterSW } from "@/components/register-sw";
 
 export const metadata: Metadata = {
   title: { default: "Car Rental", template: "%s · Car Rental" },
   applicationName: "Car Rental",
-  appleWebApp: { capable: true, title: "Car Rental", statusBarStyle: "default" },
+  appleWebApp: {
+    capable: true,
+    title: "Car Rental",
+    statusBarStyle: "default",
+    // iOS shows these while the installed app opens (one image per device size; made by scripts/make-icons.mjs).
+    startupImage: splashScreens.map((d) => {
+      const [w, h] = d.o === "landscape" ? [d.h, d.w] : [d.w, d.h];
+      return { url: `/splash/${w * d.r}x${h * d.r}.png`, media: `(device-width: ${d.w}px) and (device-height: ${d.h}px) and (-webkit-device-pixel-ratio: ${d.r}) and (orientation: ${d.o})` };
+    }),
+  },
   icons: { icon: "/icons/icon-192.png", apple: "/icons/apple-touch-icon.png" },
 };
 export const viewport: Viewport = { themeColor: "#2563eb", width: "device-width", initialScale: 1, viewportFit: "cover" };
