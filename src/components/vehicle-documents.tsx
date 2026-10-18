@@ -31,7 +31,7 @@ function Files({ files, canModify, onRemoved }: { files: DocFileRef[]; canModify
               {i >= 0 ? (
                 <button type="button" onClick={() => setOpen(i)} className="block h-16 w-16 overflow-hidden rounded-lg bg-slate-200 ring-1 ring-slate-200" aria-label={`Open paper ${i + 1}`}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={`/api/vehicle-doc-files/${f.id}`} alt="" className="h-full w-full object-cover" loading="lazy" />
+                  <img src={`/api/vehicle-doc-files/${f.id}`} alt="" className="h-full w-full object-cover" loading="lazy" decoding="async" />
                 </button>
               ) : (
                 <a href={`/api/vehicle-doc-files/${f.id}`} target="_blank" rel="noreferrer" className="flex h-16 items-center gap-1.5 rounded-lg bg-slate-100 px-3 text-sm font-medium text-slate-700 ring-1 ring-slate-200">📄 PDF</a>

@@ -151,7 +151,7 @@ function Bills({ bills }: { bills: BillRef[] }) {
           <li key={b.id}>
             <button type="button" aria-label={`Open bill photo ${i + 1} of ${images.length}`} onClick={() => setOpen(i)} className="block h-16 w-16 overflow-hidden rounded-lg bg-slate-200 ring-1 ring-slate-200">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={`/api/service-bills/${b.id}`} alt={`Bill ${i + 1}`} className="h-full w-full object-cover" loading="lazy" />
+              <img src={`/api/service-bills/${b.id}`} alt={`Bill ${i + 1}`} className="h-full w-full object-cover" loading="lazy" decoding="async" />
             </button>
           </li>
         ))}

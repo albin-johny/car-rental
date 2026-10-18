@@ -50,7 +50,7 @@ export function PhotoManager({ vehicleId, photos, max, showTitle = true }: { veh
           <div key={p.id} className="relative overflow-hidden rounded-lg bg-slate-200">
             <button type="button" onClick={() => setViewing(i)} aria-label={`Open photo ${i + 1} of ${photos.length}`} className="block w-full">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={`/api/photos/${p.id}`} alt={`Vehicle photo ${i + 1}`} className="aspect-[4/3] w-full object-cover" loading="lazy" />
+              <img src={`/api/photos/${p.id}`} alt={`Vehicle photo ${i + 1}`} className="aspect-[4/3] w-full object-cover" loading="lazy" decoding="async" />
             </button>
             <button
               onClick={() => remove(p.id)}

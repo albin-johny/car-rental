@@ -16,7 +16,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     return new Response(EXPIRED_SVG, { headers: { "Content-Type": "image/svg+xml", "Cache-Control": "private, max-age=3600" } });
   }
   return new Response(obj.body, {
-    headers: { "Content-Type": "image/jpeg", "Cache-Control": "private, max-age=86400, immutable", "X-Content-Type-Options": "nosniff" },
+    headers: { "Content-Type": "image/jpeg", "Cache-Control": "private, max-age=31536000, immutable", "X-Content-Type-Options": "nosniff" },
   });
 }
 

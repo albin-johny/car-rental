@@ -98,7 +98,7 @@ export default async function FleetPage({ searchParams }: { searchParams: Promis
                 <div className="h-16 w-20 shrink-0 overflow-hidden rounded-lg bg-slate-200">
                   {c.vehicle.cover_photo_id && (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={`/api/photos/${c.vehicle.cover_photo_id}`} alt="" className="h-full w-full object-cover" loading="lazy" />
+                    <img src={`/api/photos/${c.vehicle.cover_photo_id}`} alt="" className="h-full w-full object-cover" loading="lazy" decoding="async" />
                   )}
                 </div>
                 <div className="min-w-0 flex-1 space-y-0.5">

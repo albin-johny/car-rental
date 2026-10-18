@@ -17,7 +17,7 @@ export function ThumbGrid({ items, variant = "full", adminDeleteLate = false }: 
             <div className="relative">
               <button type="button" onClick={() => setOpen(i)} aria-label={`Open photo ${i + 1} of ${items.length}`} className={`block w-full overflow-hidden bg-slate-200 ${compact ? "h-16 rounded-md" : "rounded-lg"}`}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={t.src} alt={t.alt} className={`w-full object-cover ${compact ? "h-full" : "aspect-[4/3]"}`} loading="lazy" />
+                <img src={t.src} alt={t.alt} className={`w-full object-cover ${compact ? "h-full" : "aspect-[4/3]"}`} loading="lazy" decoding="async" />
               </button>
               <span className={`absolute flex items-center justify-center rounded-full font-semibold text-white shadow ${t.late ? "bg-amber-600" : "bg-blue-600"} ${compact ? "left-0.5 top-0.5 px-1.5 text-[10px]" : "left-1.5 top-1.5 h-7 min-w-7 px-2 text-sm"}`} title={t.late ? "Added later" : undefined}>{i + 1}</span>
               {!compact && t.late && adminDeleteLate && <DeleteLatePhotoButton photoId={t.id} label={`Delete photo ${i + 1}`} />}

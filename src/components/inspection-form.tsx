@@ -129,7 +129,7 @@ export function InspectionForm({
                 <div className="relative">
                   <button type="button" onClick={() => setViewing(i)} aria-label={`Open photo ${i + 1} of ${order.length}`} className="block w-full">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={`/api/inspection-photos/${id}`} alt={`Photo ${i + 1}`} className="aspect-[4/3] w-full bg-slate-200 object-cover" loading="lazy" />
+                    <img src={`/api/inspection-photos/${id}`} alt={`Photo ${i + 1}`} className="aspect-[4/3] w-full bg-slate-200 object-cover" loading="lazy" decoding="async" />
                   </button>
                   <span className="absolute left-1.5 top-1.5 flex h-7 min-w-7 items-center justify-center rounded-full bg-blue-600 px-2 text-sm font-semibold text-white shadow">{i + 1}</span>
                   <button type="button" aria-label={`Delete photo ${i + 1}`} onClick={() => remove(id)} className="absolute right-1 top-1 flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white">✕</button>

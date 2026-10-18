@@ -15,7 +15,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   return new Response(obj.body, {
     headers: {
       "Content-Type": row.content_type,
-      "Cache-Control": "private, max-age=86400, immutable", // ids are never reused
+      "Cache-Control": "private, max-age=31536000, immutable", // ids are never reused
       "X-Content-Type-Options": "nosniff",
     },
   });

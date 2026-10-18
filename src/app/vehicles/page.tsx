@@ -43,7 +43,7 @@ export default async function VehiclesPage({ searchParams }: { searchParams: Pro
                 <div className="h-20 w-24 shrink-0 overflow-hidden rounded-lg bg-slate-200">
                   {v.cover_photo_id && (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={`/api/photos/${v.cover_photo_id}`} alt="" className="h-full w-full object-cover" loading="lazy" />
+                    <img src={`/api/photos/${v.cover_photo_id}`} alt="" className="h-full w-full object-cover" loading="lazy" decoding="async" />
                   )}
                 </div>
                 <div className="min-w-0 flex-1">
