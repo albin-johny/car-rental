@@ -11,7 +11,7 @@ import { isLatePhoto } from "../src/lib/inspection-constants.ts";
 before(async () => {
   await seedBasics();
   // One car per test, so a rental left "out" in one test doesn't block the next (that rule is tested on purpose below).
-  for (let n = 1; n <= 24; n++) {
+  for (let n = 1; n <= 27; n++) {
     await DB.prepare(`INSERT INTO vehicles(id,registration_number,make,model,year,fuel_type,transmission,seats,odometer_km,daily_rate_paise,deposit_paise,is_active,created_at,updated_at) VALUES (?1,?1,'Hyundai','i20',2023,'diesel','manual',5,10000,300000,0,1,?2,?2)`).bind(`w${n}`, new Date().toISOString()).run();
   }
 });
@@ -47,16 +47,23 @@ test("pickup draft starts from the vehicle's odometer; return starts from the pi
   assert.deepEqual([ret.odometer_km, ret.fuel_eighths], [10100, 5]);
 });
 
-test("at least one photo is required; only an admin can waive it, with a written reason", async () => {
+test("at least one photo is required; only an admin can waive it", async () => {
   const r = await book({ vehicle_id: "w2",  start_at: "2030-04-01T10:00", end_at: "2030-04-02T10:00" });
   const i = await draft(r, "pickup");
-  assert.deepEqual(await completeInspection(i, await readings(), staff), { error: "Add at least one photo first" });
+  assert.match(String((await completeInspection(i, await readings(), staff) as { error: string }).error), /at least one photo/i);
   assert.match(String((await completeInspection(i, await readings({ override_reason: "no time" }), staff) as { error: string }).error), /Only an admin/);
-  assert.match(String((await completeInspection(i, await readings(), admin) as { error: string }).error), /at least one photo/i);
-  assert.match(String((await completeInspection(i, await readings({ override_reason: "no" }), admin) as { error: string }).error), /short reason/);
+  assert.match(String((await completeInspection(i, await readings(), staff) as { error: string }).error), /Only an admin/);
   assert.ok("ok" in (await completeInspection(i, await readings({ override_reason: "Camera broken" }), admin)));
   const done = (await getInspection(r, "pickup"))!;
   assert.deepEqual([done.override_reason, done.override_by], ["Camera broken", admin.id]);
+});
+
+test("an admin can complete without a photo and without a reason", async () => {
+  const r = await book({ vehicle_id: "w27", start_at: "2032-04-01T10:00", end_at: "2032-04-02T10:00" });
+  const i = await draft(r, "pickup");
+  assert.ok("ok" in (await completeInspection(i, await readings(), admin)));
+  const done = (await getInspection(r, "pickup"))!;
+  assert.deepEqual([done.override_reason, done.override_by], ["No reason given", admin.id]);
 });
 
 test("photo upload rules: JPEG only, size limit, 24-photo cap, order of upload kept", async () => {
@@ -304,4 +311,36 @@ test("without a time given, the handover is recorded as now (the usual case)", a
   assert.ok(Math.abs(Date.parse(row.ap!) - Date.now()) < 60_000);
   const insp = await inspRow(r, "pickup");
   assert.equal(insp.inspected_at, insp.completed_at);
+});
+
+test("return: km beyond the daily allowance is charged at the rental's own rate, and the total can be overridden", async () => {
+  // w24: 300 km/day, Rs 12 per extra km on the vehicle; the booking gives Rs 10 instead. 2 days => 600 km allowed.
+  await DB.prepare("UPDATE vehicles SET daily_km_limit=300, extra_km_rate_paise=1200 WHERE id IN ('w24','w25')").run();
+  const run = async (vehicle: string, start: string, end: string, extra: Record<string, string>, retTotal?: string) => {
+    const r = await book({ vehicle_id: vehicle, start_at: start, end_at: end, total: "5000", ...extra });
+    const p = await draft(r, "pickup");
+    await addInspectionPhoto(p, jpeg(), staff);
+    assert.ok("ok" in (await completeInspection(p, await readings({ odometer_km: "10000" }), staff)));
+    const i = await draft(r, "return");
+    await addInspectionPhoto(i, jpeg(), staff);
+    const res = await completeInspection(i, await readings({ odometer_km: "10700", ...(retTotal ? { total: retTotal } : {}) }), staff);
+    assert.ok("ok" in res, JSON.stringify(res));
+    return (await DB.prepare("SELECT total_paise t, extra_km x, extra_km_charge_paise c, extra_km_rate_paise rate, daily_km_limit l FROM rentals WHERE id=?").bind(r).first()) as { t: number; x: number; c: number; rate: number; l: number };
+  };
+  // 700 driven - 600 allowed = 100 extra x Rs 10 (discounted rate) = Rs 1,000 on top of Rs 5,000.
+  assert.deepEqual(await run("w24", "2031-01-01T10:00", "2031-01-03T10:00", { extra_km_rate: "10" }), { t: 600000, x: 100, c: 100000, rate: 1000, l: 300 });
+  // Blank rate on the booking uses the vehicle's Rs 12; staff then give a discount on the whole total.
+  assert.deepEqual(await run("w25", "2031-02-01T10:00", "2031-02-03T10:00", {}, "5800"), { t: 580000, x: 100, c: 120000, rate: 1200, l: 300 });
+});
+
+test("return: no allowance set means no extra-km charge", async () => {
+  const r = await book({ vehicle_id: "w26", start_at: "2031-03-01T10:00", end_at: "2031-03-02T10:00", total: "3000" });
+  const p = await draft(r, "pickup");
+  await addInspectionPhoto(p, jpeg(), staff);
+  await completeInspection(p, await readings({ odometer_km: "10000" }), staff);
+  const i = await draft(r, "return");
+  await addInspectionPhoto(i, jpeg(), staff);
+  await completeInspection(i, await readings({ odometer_km: "19000" }), staff);
+  const row = (await DB.prepare("SELECT total_paise t, extra_km x FROM rentals WHERE id=?").bind(r).first()) as { t: number; x: number };
+  assert.deepEqual(row, { t: 300000, x: 0 });
 });

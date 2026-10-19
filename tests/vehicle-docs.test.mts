@@ -13,7 +13,7 @@ after(teardown);
 const pdf = () => { const b = new Uint8Array(1500); b.set(new TextEncoder().encode("%PDF-1.4\n%x")); return b.buffer; };
 const doc = (type: string, until = "") => documentSchema.parse({ doc_type: type, valid_until: until });
 const stored = async (prefix: string) => (await PHOTOS.list({ prefix })).objects.length;
-const vehicle = (reg: string) => vehicleSchema.parse({ registration_number: reg, make: "Tata", model: "Nexon", year: "2022", color: "", fuel_type: "petrol", transmission: "manual", seats: "5", odometer_km: "1000", daily_rate_paise: "2000", deposit_paise: "0", notes: "" });
+const vehicle = (reg: string) => vehicleSchema.parse({ registration_number: reg, make: "Tata", model: "Nexon", year: "2022", color: "", fuel_type: "petrol", transmission: "manual", seats: "5", odometer_km: "1000", daily_rate_paise: "2000", daily_km_limit: "300", extra_km_rate_paise: "10", notes: "" });
 
 test("status: valid through the date, 'soon' within 30 days, expired the day after", () => {
   const today = "2026-10-17";

@@ -78,3 +78,10 @@ textarea.input { @apply min-h-24; }
   .launch-screen { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; background: #f8fafc; transition: opacity 300ms ease; }
   .launch-screen-out { opacity: 0; pointer-events: none; }
 }
+
+/* Chip filters: while the new list loads, what follows the chips dims, and a thin bar slides under them. */
+[data-chip-nav][data-pending] ~ * { opacity: 0.5; pointer-events: none; transition: opacity 150ms ease 80ms; }
+[data-chip-nav] ~ * { transition: opacity 150ms ease; }
+.chip-bar > span { display: block; height: 100%; width: 40%; border-radius: 9999px; background: #2563eb; animation: chip-bar 1s ease-in-out infinite; }
+@keyframes chip-bar { from { translate: -100%; } to { translate: 250%; } }
+@media (prefers-reduced-motion: reduce) { .chip-bar > span { animation: none; width: 100%; } }

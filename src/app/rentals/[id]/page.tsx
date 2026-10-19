@@ -32,7 +32,7 @@ export default async function RentalPage({ params, searchParams }: { params: Pro
   const historyCount = me.role === "admin" ? await countAuditForRental(id) : 0;
   const editable = r.status === "booked" || r.status === "active";
   const vehicles = editable ? await listVehicles({ status: "active" }) : [];
-  const options = vehicles.map((v) => ({ id: v.id, label: `${v.make} ${v.model} · ${v.registration_number}`, rate_paise: v.daily_rate_paise, odometer_km: v.odometer_km }));
+  const options = vehicles.map((v) => ({ id: v.id, label: `${v.make} ${v.model} · ${v.registration_number}`, rate_paise: v.daily_rate_paise, odometer_km: v.odometer_km, km_limit: v.daily_km_limit, extra_km_rate_paise: v.extra_km_rate_paise }));
 
   const row = (label: string, value: React.ReactNode) => (
     <div className="flex justify-between gap-4 py-2 text-sm"><dt className="text-slate-500">{label}</dt><dd className="text-right font-medium">{value}</dd></div>
@@ -55,7 +55,10 @@ export default async function RentalPage({ params, searchParams }: { params: Pro
         {r.start_km !== null && row("Start km", `${new Intl.NumberFormat("en-IN").format(r.start_km)} km`)}
         {r.end_km !== null && row("End km", `${new Intl.NumberFormat("en-IN").format(r.end_km)} km`)}
         {r.start_km !== null && r.end_km !== null && row("Km driven", `${new Intl.NumberFormat("en-IN").format(r.end_km - r.start_km)} km`)}
-        {row("Total rent", formatINR(r.total_paise))}
+        {r.extra_km_charge_paise !== null && r.extra_km_charge_paise > 0
+          ? row("Rent + extra km", <>{formatINR(r.total_paise)}<span className="block text-xs font-normal text-slate-500">incl. {new Intl.NumberFormat("en-IN").format(r.extra_km ?? 0)} extra km × {formatINR(r.extra_km_rate_paise)} = {formatINR(r.extra_km_charge_paise)}</span></>)
+          : row("Total rent", formatINR(r.total_paise))}
+        {r.daily_km_limit > 0 && row("Km allowed", `${new Intl.NumberFormat("en-IN").format(r.daily_km_limit)} km/day · extra ${formatINR(r.extra_km_rate_paise)}/km`)}
         {row("Daily rate when booked", `${formatINR(r.rate_snapshot_paise)} × ${rentalDays(r.start_at, r.end_at)} day(s)`)}
         {r.notes && row("Notes", <span className="whitespace-pre-wrap font-normal">{r.notes}</span>)}
       </dl>
@@ -92,6 +95,8 @@ export default async function RentalPage({ params, searchParams }: { params: Pro
               start_at: isoToIstInput(r.start_at),
               end_at: isoToIstInput(r.end_at),
               total: paiseToInput(r.total_paise),
+              extra_km_rate: paiseToInput(r.extra_km_rate_paise),
+              km_limit: String(r.daily_km_limit),
               start_km: r.start_km === null ? "" : String(r.start_km),
               notes: r.notes ?? "",
             }}

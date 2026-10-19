@@ -84,7 +84,8 @@ export function VehicleForm({
         {field("seats", "Seats", { required: true, type: "number", inputMode: "numeric" })}
         {field("odometer_km", "Odometer (km)", { required: true, type: "number", inputMode: "numeric" })}
         {field("daily_rate_paise", "Daily rate (₹)", { required: true, inputMode: "decimal", placeholder: "2500" })}
-        {field("deposit_paise", "Deposit (₹)", { required: true, inputMode: "decimal", placeholder: "5000" })}
+        {field("daily_km_limit", "Km allowed per day", { required: true, type: "number", inputMode: "numeric", placeholder: "300" })}
+        {field("extra_km_rate_paise", "Extra km rate (₹)", { required: true, inputMode: "decimal", placeholder: "10" })}
       </div>
       <div>
         <label className="label" htmlFor="notes">Notes</label>

@@ -7,7 +7,7 @@ import { isoToIstInput, istInputToIso } from "@/lib/time";
 import { rentalDays, suggestTotalPaise } from "@/lib/rental-constants";
 
 type Action = (prev: FormState, fd: FormData) => Promise<FormState>;
-export type VehicleOption = { id: string; label: string; rate_paise: number; odometer_km: number };
+export type VehicleOption = { id: string; label: string; rate_paise: number; odometer_km: number; km_limit: number; extra_km_rate_paise: number };
 
 export function RentalForm({
   action, vehicles, initial, mode, submitLabel,
@@ -25,6 +25,8 @@ export function RentalForm({
   const [start, setStart] = useState(initial.start_at ?? "");
   const [end, setEnd] = useState(initial.end_at ?? "");
   const [total, setTotal] = useState(initial.total ?? "");
+  const [kmLimit, setKmLimit] = useState(initial.km_limit ?? "");
+  const [extraRate, setExtraRate] = useState(initial.extra_km_rate ?? "");
   const [notes, setNotes] = useState(initial.notes ?? "");
   const [recordAs, setRecordAs] = useState(initial.record_as ?? "booked");
   const [touched, setTouched] = useState(mode !== "create"); // staff typed a total; stop auto-suggesting
@@ -48,6 +50,16 @@ export function RentalForm({
     setStartKm(recordAs !== "booked" && car ? String(car.odometer_km) : "");
   }, [mode, kmTouched, recordAs, car]);
 
+  // Choosing a different vehicle starts from that vehicle's extra-km rate (staff can then lower it for a discount).
+  const changeVehicle = (id: string) => {
+    setVehicleId(id);
+    const veh = vehicles.find((x) => x.id === id);
+    if (veh) {
+      setExtraRate(paiseToInput(veh.extra_km_rate_paise));
+      setKmLimit(String(veh.km_limit));
+    }
+  };
+
   const err = state?.errors ?? {};
   const locked = mode === "edit-active";
 
@@ -69,7 +81,7 @@ export function RentalForm({
       ) : (
         <div>
           <label className="label" htmlFor="vehicle_id">Vehicle</label>
-          <select id="vehicle_id" name="vehicle_id" value={vehicleId} onChange={(e) => setVehicleId(e.target.value)} required className="input">
+          <select id="vehicle_id" name="vehicle_id" value={vehicleId} onChange={(e) => changeVehicle(e.target.value)} required className="input">
             <option value="" disabled>Choose a vehicle…</option>
             {vehicles.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
           </select>
@@ -108,6 +120,20 @@ export function RentalForm({
             )}
           </p>
         )}
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="label" htmlFor="km_limit">Km allowed per day</label>
+          <input id="km_limit" name="km_limit" value={kmLimit} onChange={(e) => setKmLimit(e.target.value)} inputMode="numeric" className="input" placeholder={car ? String(car.km_limit) : "300"} />
+          {err.km_limit && <p className="err">{err.km_limit}</p>}
+        </div>
+        <div>
+          <label className="label" htmlFor="extra_km_rate">Extra km rate (₹/km)</label>
+          <input id="extra_km_rate" name="extra_km_rate" value={extraRate} onChange={(e) => setExtraRate(e.target.value)} inputMode="decimal" className="input" placeholder={car ? paiseToInput(car.extra_km_rate_paise) : "10"} />
+          {err.extra_km_rate && <p className="err">{err.extra_km_rate}</p>}
+        </div>
+        <p className="col-span-2 -mt-1 text-xs text-slate-500">Every km beyond the daily allowance is charged at this rate when the car comes back. 0 = no limit. Lower the rate here to give a discount.</p>
       </div>
 
       {mode === "create" && (

@@ -62,6 +62,7 @@ export default async function InspectPage({ params, searchParams }: { params: Pr
           carKm={carRow?.odometer_km ?? null}
           type={type}
           defaultAt={isoToIstInput(new Date().toISOString())}
+          billing={type === "return" ? { startIso: rental.start_at, endIso: rental.end_at, limitPerDay: rental.daily_km_limit, ratePaise: rental.extra_km_rate_paise, startKm: pickup?.completed_at ? pickup.odometer_km : rental.start_km, baseTotalPaise: rental.total_paise } : null}
           recordOnly={rental.status !== (type === "pickup" ? "booked" : "active") ? (rental.status === "active" ? "out" : "returned") : null}
         />
       </div>

@@ -18,7 +18,8 @@ export type Vehicle = {
   seats: number;
   odometer_km: number;
   daily_rate_paise: number;
-  deposit_paise: number;
+  daily_km_limit: number;
+  extra_km_rate_paise: number;
   notes: string | null;
   is_active: number;
   created_at: string;
@@ -50,7 +51,8 @@ export const vehicleSchema = z.object({
   seats: z.coerce.number().int().min(1).max(60),
   odometer_km: z.coerce.number().int().min(0).max(5_000_000),
   daily_rate_paise: money("Daily rate"),
-  deposit_paise: money("Deposit"),
+  daily_km_limit: z.coerce.number({ message: "Enter the km allowed per day (0 for no limit)" }).int("Whole kilometres only").min(0).max(5000),
+  extra_km_rate_paise: money("Extra km rate"),
   notes: z.string().trim().max(1000).optional().transform((v) => v || null),
 });
 export type VehicleInput = z.infer<typeof vehicleSchema>;
@@ -92,7 +94,7 @@ export async function listPhotos(vehicleId: string) {
   return results;
 }
 
-const COLS = "registration_number,make,model,year,color,fuel_type,transmission,seats,odometer_km,daily_rate_paise,deposit_paise,notes";
+const COLS = "registration_number,make,model,year,color,fuel_type,transmission,seats,odometer_km,daily_rate_paise,daily_km_limit,extra_km_rate_paise,notes";
 
 /** Returns {error} on a duplicate registration number. */
 /**
@@ -107,8 +109,8 @@ export async function insertVehicle(v: VehicleInput, docs: NewDocument[] = [], u
   try {
     await db.batch([
       db
-        .prepare(`INSERT INTO vehicles (id,${COLS},created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-        .bind(id, v.registration_number, v.make, v.model, v.year, v.color, v.fuel_type, v.transmission, v.seats, v.odometer_km, v.daily_rate_paise, v.deposit_paise, v.notes, now, now),
+        .prepare(`INSERT INTO vehicles (id,${COLS},created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+        .bind(id, v.registration_number, v.make, v.model, v.year, v.color, v.fuel_type, v.transmission, v.seats, v.odometer_km, v.daily_rate_paise, v.daily_km_limit, v.extra_km_rate_paise, v.notes, now, now),
       ...rows.map((r) => r.stmt),
     ]);
     return { id, docs: Object.fromEntries(rows.map((r) => [r.type, r.id])) };
@@ -122,9 +124,9 @@ export async function updateVehicle(id: string, v: VehicleInput): Promise<{ ok: 
   try {
     const r = await env()
       .DB.prepare(
-        `UPDATE vehicles SET registration_number=?,make=?,model=?,year=?,color=?,fuel_type=?,transmission=?,seats=?,odometer_km=?,daily_rate_paise=?,deposit_paise=?,notes=?,updated_at=? WHERE id=?`,
+        `UPDATE vehicles SET registration_number=?,make=?,model=?,year=?,color=?,fuel_type=?,transmission=?,seats=?,odometer_km=?,daily_rate_paise=?,daily_km_limit=?,extra_km_rate_paise=?,notes=?,updated_at=? WHERE id=?`,
       )
-      .bind(v.registration_number, v.make, v.model, v.year, v.color, v.fuel_type, v.transmission, v.seats, v.odometer_km, v.daily_rate_paise, v.deposit_paise, v.notes, new Date().toISOString(), id)
+      .bind(v.registration_number, v.make, v.model, v.year, v.color, v.fuel_type, v.transmission, v.seats, v.odometer_km, v.daily_rate_paise, v.daily_km_limit, v.extra_km_rate_paise, v.notes, new Date().toISOString(), id)
       .run();
     if (!r.meta.changes) return { error: "Vehicle not found" };
     return { ok: true };

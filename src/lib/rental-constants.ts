@@ -28,3 +28,15 @@ export function rentalDays(startIso: string, endIso: string): number {
 export function suggestTotalPaise(startIso: string, endIso: string, ratePaise: number): number {
   return rentalDays(startIso, endIso) * ratePaise;
 }
+
+/**
+ * Extra-km billing. The allowance is the daily limit x the booked days (same days the rent is based on).
+ * A limit of 0 means no allowance is set, so nothing is ever charged.
+ */
+export function extraKmCharge(o: { startIso: string; endIso: string; limitPerDay: number; ratePaise: number; startKm: number | null; endKm: number }) {
+  const days = rentalDays(o.startIso, o.endIso);
+  const allowed = o.limitPerDay * days;
+  const driven = o.startKm === null ? 0 : Math.max(0, o.endKm - o.startKm);
+  const extra = o.limitPerDay > 0 ? Math.max(0, driven - allowed) : 0;
+  return { days, allowed, driven, extra, chargePaise: extra * o.ratePaise };
+}

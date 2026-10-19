@@ -17,7 +17,7 @@ export default async function NewVehiclePage({ searchParams }: { searchParams: P
         submitLabel="Add vehicle"
         withDocuments
         back={back}
-        initial={{ year: String(new Date().getFullYear()), fuel_type: "petrol", transmission: "manual", seats: "5", odometer_km: "0", deposit_paise: "0" }}
+        initial={{ year: String(new Date().getFullYear()), fuel_type: "petrol", transmission: "manual", seats: "5", odometer_km: "0", daily_km_limit: "300", extra_km_rate_paise: "10" }}
       />
       <p className="text-sm text-slate-500">You can add the car's photos after saving.</p>
     </div>

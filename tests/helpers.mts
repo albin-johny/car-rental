@@ -11,7 +11,7 @@ import { getPlatformProxy } from "wrangler";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const dir = mkdtempSync(join(tmpdir(), "car-rental-test-"));
 
-execFileSync("npx", ["wrangler", "d1", "migrations", "apply", "car-rental", "--local", "--persist-to", dir], { cwd: root, stdio: "ignore" });
+execFileSync("npx", ["wrangler", "d1", "migrations", "apply", "fleetdesk", "--local", "--persist-to", dir], { cwd: root, stdio: "ignore" });
 const proxy = await getPlatformProxy<CloudflareEnv>({ configPath: join(root, "wrangler.jsonc"), persist: { path: join(dir, "v3") } });
 (globalThis as Record<symbol, unknown>)[Symbol.for("__cloudflare-context__")] = {
   env: proxy.env,

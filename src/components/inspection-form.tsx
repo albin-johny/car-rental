@@ -5,12 +5,14 @@ import { useRouter } from "next/navigation";
 import { uploadInspectionPhotos } from "@/lib/inspection-upload";
 import { PhotoViewer } from "./photo-viewer";
 import { MAX_INSPECTION_PHOTOS, MIN_PHOTOS, fuelLabel } from "@/lib/inspection-constants";
+import { extraKmCharge } from "@/lib/rental-constants";
+import { formatINR, paiseToInput, rupeesToPaise } from "@/lib/money";
 import type { FormState } from "@/app/vehicles/actions";
 
 type Action = (prev: FormState, fd: FormData) => Promise<FormState>;
 
 export function InspectionForm({
-  action, inspectionId, photoIds, initial, isAdmin, lastOdometer, carKm, type, defaultAt, recordOnly,
+  action, inspectionId, photoIds, initial, isAdmin, lastOdometer, carKm, type, defaultAt, recordOnly, billing,
 }: {
   action: Action;
   inspectionId: string;
@@ -21,6 +23,7 @@ export function InspectionForm({
   carKm: number | null; // the car's last known reading when doing a pickup: a lower reading is probably a typo
   type: "pickup" | "return";
   defaultAt: string; // now, in India time, as a datetime-local value
+  billing: { startIso: string; endIso: string; limitPerDay: number; ratePaise: number; startKm: number | null; baseTotalPaise: number } | null; // return only: what the rent is worked out from
   recordOnly: "out" | "returned" | null; // the rental is already past this step: only the record is added, its status is not changed
 }) {
   const router = useRouter();
@@ -31,6 +34,18 @@ export function InspectionForm({
   const [notes, setNotes] = useState(initial.notes);
   const [at, setAt] = useState(defaultAt);
   const [reason, setReason] = useState("");
+  const [total, setTotal] = useState("");
+  const [totalTouched, setTotalTouched] = useState(false);
+
+  // Return: rent = booked rent + extra km beyond the daily allowance. Follows the odometer until staff type their own total.
+  const km = billing && odo.trim() !== "" && Number.isFinite(Number(odo))
+    ? extraKmCharge({ startIso: billing.startIso, endIso: billing.endIso, limitPerDay: billing.limitPerDay, ratePaise: billing.ratePaise, startKm: billing.startKm, endKm: Number(odo) })
+    : null;
+  const calculated = billing ? billing.baseTotalPaise + (km?.chargePaise ?? 0) : null;
+  useEffect(() => {
+    if (calculated !== null && !totalTouched) setTotal(paiseToInput(calculated));
+  }, [calculated, totalTouched]);
+  const typedTotal = rupeesToPaise(total);
   const [order, setOrder] = useState(photoIds);
   const [progress, setProgress] = useState("");
   const [photoError, setPhotoError] = useState("");
@@ -114,6 +129,35 @@ export function InspectionForm({
           <label className="label" htmlFor="notes">Damage / condition notes</label>
           <textarea id="notes" name="notes" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} className="input" placeholder="Scratches, dents, cleanliness…" />
         </div>
+
+        {billing && calculated !== null && (
+          <div className="space-y-2 rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200">
+            <h3 className="font-semibold">Rent</h3>
+            <dl className="space-y-1 text-sm">
+              <div className="flex justify-between gap-3"><dt className="text-slate-500">Booked rent</dt><dd className="font-medium">{formatINR(billing.baseTotalPaise)}</dd></div>
+              {billing.limitPerDay > 0 && km && billing.startKm !== null ? (
+                <>
+                  <div className="flex justify-between gap-3"><dt className="text-slate-500">Driven / allowed</dt><dd className="font-medium">{km.driven} / {km.allowed} km <span className="font-normal text-slate-500">({billing.limitPerDay} × {km.days} day{km.days > 1 ? "s" : ""})</span></dd></div>
+                  <div className="flex justify-between gap-3"><dt className="text-slate-500">Extra km{km.extra > 0 ? ` (${km.extra} × ${formatINR(billing.ratePaise)})` : ""}</dt><dd className="font-medium">{formatINR(km.chargePaise)}</dd></div>
+                </>
+              ) : (
+                <p className="text-slate-500">{billing.limitPerDay === 0 ? "No daily km limit for this rental, so no extra km are charged." : "No starting km on record, so extra km can't be worked out."}</p>
+              )}
+            </dl>
+            <div>
+              <label className="label" htmlFor="total">Total rent (₹)</label>
+              <input id="total" name="total" value={total} inputMode="decimal" required className="input" onChange={(e) => { setTotal(e.target.value); setTotalTouched(true); }} />
+              {err.total && <p className="err">{err.total}</p>}
+              {typedTotal !== null && typedTotal !== calculated && (
+                <p className="mt-1 text-sm text-slate-500">
+                  {typedTotal < calculated ? `Discount of ${formatINR(calculated - typedTotal)}` : `${formatINR(typedTotal - calculated)} above the calculated ${formatINR(calculated)}`}
+                  <button type="button" className="ml-2 text-blue-700 underline" onClick={() => { setTotalTouched(false); setTotal(paiseToInput(calculated)); }}>Use calculated</button>
+                </p>
+              )}
+              <p className="mt-1 text-xs text-slate-500">Edit this if you are giving a discount. It becomes the rental&apos;s total.</p>
+            </div>
+          </div>
+        )}
       </section>
 
       <section className="space-y-3">
@@ -171,14 +215,14 @@ export function InspectionForm({
       {needPhoto && isAdmin && (
         <section className="space-y-2 rounded-2xl bg-amber-50 p-3 ring-1 ring-amber-200">
           <label className="label" htmlFor="override_reason">Admin: complete without a photo</label>
-          <textarea id="override_reason" name="override_reason" rows={2} value={reason} onChange={(e) => setReason(e.target.value)} className="input" placeholder="Reason (required to skip photos)" />
+          <textarea id="override_reason" name="override_reason" rows={2} value={reason} onChange={(e) => setReason(e.target.value)} className="input" placeholder="Reason (optional)" />
         </section>
       )}
       {needPhoto && !isAdmin && <p className="text-sm text-slate-600">Add at least one photo to complete. Only an admin can complete without one.</p>}
       {state?.message && <p role="status" className={state.errors ? "err" : "text-sm text-green-700"}>{state.message}</p>}
 
       <div className="space-y-2 md:max-w-sm">
-        <button name="intent" value="complete" className="btn w-full" disabled={pending || busy || (needPhoto && !(isAdmin && reason.trim().length > 0))}>
+        <button name="intent" value="complete" className="btn w-full" disabled={pending || busy || (needPhoto && !isAdmin)}>
           {pending ? "Saving…" : "Complete inspection"}
         </button>
         <button name="intent" value="save" className="btn btn-secondary w-full" disabled={pending || busy} formNoValidate>Save draft</button>

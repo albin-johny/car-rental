@@ -53,7 +53,8 @@ export default async function VehiclePage({ params, searchParams }: { params: Pr
     seats: String(v.seats),
     odometer_km: String(v.odometer_km),
     daily_rate_paise: paiseToInput(v.daily_rate_paise),
-    deposit_paise: paiseToInput(v.deposit_paise),
+    daily_km_limit: String(v.daily_km_limit),
+    extra_km_rate_paise: paiseToInput(v.extra_km_rate_paise),
     notes: v.notes ?? "",
   };
 
@@ -136,7 +137,7 @@ export default async function VehiclePage({ params, searchParams }: { params: Pr
       </Collapsible>
       <Collapsible
         title="Vehicle details"
-        summary={`${cap(v.fuel_type)} · ${cap(v.transmission)} · ${v.seats} seats · ${formatINRShort(v.daily_rate_paise)}/day`}
+        summary={`${cap(v.fuel_type)} · ${cap(v.transmission)} · ${v.seats} seats · ${formatINRShort(v.daily_rate_paise)}/day${v.daily_km_limit ? ` · ${v.daily_km_limit} km/day, ${formatINRShort(v.extra_km_rate_paise)}/extra km` : ""}`}
       >
         <VehicleForm action={updateVehicleAction.bind(null, id)} initial={initial} submitLabel="Save changes" />
         {user.role === "admin" && <ActiveToggle id={id} active={!!v.is_active} />}
