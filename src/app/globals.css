@@ -71,3 +71,10 @@ textarea.input { @apply min-h-24; }
 @media (min-width: 768px) { .sheet-panel { animation-name: sheet-pop; } }
 @keyframes sheet-pop { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .sheet-backdrop, .sheet-panel { animation: none; } }
+
+/* ---------- launch screen (launch-screen.tsx): installed app only ---------- */
+.launch-screen { display: none; }
+@media (display-mode: standalone) {
+  .launch-screen { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; background: #f8fafc; transition: opacity 300ms ease; }
+  .launch-screen-out { opacity: 0; pointer-events: none; }
+}

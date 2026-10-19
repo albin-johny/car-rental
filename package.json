@@ -1,5 +1,5 @@
 {
-  "name": "car-rental",
+  "name": "fleetdesk",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -9,8 +9,8 @@
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
     "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts",
-    "db:migrate:local": "wrangler d1 migrations apply car-rental --local",
-    "db:migrate:remote": "wrangler d1 migrations apply car-rental --remote",
+    "db:migrate:local": "wrangler d1 migrations apply fleetdesk --local",
+    "db:migrate:remote": "wrangler d1 migrations apply fleetdesk --remote",
     "create-admin": "node scripts/create-admin.mjs",
     "test": "node --import tsx --test --test-concurrency=1 tests/*.test.mts"
   },

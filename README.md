@@ -1,4 +1,4 @@
-# Car Rental
+# FleetDesk
 
 Mobile-first PWA for managing one car-rental business (up to ~50 vehicles, ~3 active staff users, mostly phones and tablets).
 
@@ -150,7 +150,7 @@ Migration `0011`. Optional on **Add vehicle** (valid-until date + up to 5 photos
 - All private image/file routes send `Cache-Control: private, max-age=31536000, immutable` (ids are never reused); images use `loading="lazy" decoding="async"`.
 - `public/sw.js` caches only `/_next/static/` (hashed files; cache `static-v2`; bump the name to force a refresh) and is registered **only in production builds**, so `npm run dev` never serves stale files. Use `npm run preview` to test it.
 - **App icon:** the source artwork is `design/app-icon-source.png`; run `node scripts/make-icons.mjs` to regenerate `public/icons/` (192, 512, a 180px Apple icon and a padded 512 maskable icon for Android). Icons must be full-bleed squares; the phone adds its own rounded corners.
-- **Launch screens (iOS):** `public/splash/` holds one image per iPhone/iPad size (icon on the light app background), listed in `src/lib/splash-screens.json` and wired in `src/app/layout.tsx`. The same script regenerates them. To support a new device, add its size to the JSON and rerun `node scripts/make-icons.mjs`. Android builds its launch screen from the manifest, so it needs nothing extra.
+- **Launch screens (iOS):** `public/splash/` holds one image per iPhone/iPad size (icon on the light app background), listed in `src/lib/splash-screens.json` and wired in `src/app/layout.tsx`. The same script regenerates them. To support a new device, add its size to the JSON and rerun `node scripts/make-icons.mjs`. Android builds its launch screen from the manifest, so it needs nothing extra. iOS only uses the images for some install routes (it did not work for a shortcut added from Chrome on an iPhone 16), so the app also draws its own launch screen (`src/components/launch-screen.tsx`: the icon on the app background, installed app only, faded out once the app has loaded).
 - Manifest has Home-screen shortcuts (New rental, Fleet). Tap handling, safe-area padding and 44px+ targets are in `globals.css` and the nav components.
 - Not done (ideas): see the performance backlog in the handover notes below.
 
@@ -224,7 +224,7 @@ npm install
 cp .dev.vars.example .dev.vars          # then set BETTER_AUTH_SECRET (openssl rand -base64 32)
 npm run db:migrate:local                # creates the local D1 schema
 USER_PASSWORD='choose-a-password' node scripts/create-user.mjs admin "Your Name" admin > admin.sql
-npx wrangler d1 execute car-rental --local --file admin.sql && rm admin.sql
+npx wrangler d1 execute fleetdesk --local --file admin.sql && rm admin.sql
 npm run dev                             # http://localhost:3000
 ```
 
@@ -233,7 +233,7 @@ npm run dev                             # http://localhost:3000
 
 Arguments: `<username> "<name>" <admin|staff> [email]`. The username is 3-30 characters (letters, digits, `_`, `.`) and is what people type to sign in; an email is optional and defaults to a placeholder `<username>@car-rental.local`. Passwords must be at least 10 characters. Create staff users the same way with role `staff`.
 
-**Demo data (local only):** `node scripts/seed-demo.mjs > demo.sql && npx wrangler d1 execute car-rental --local --file demo.sql && rm demo.sql` adds 30 vehicles, 28 customers and about 130 rentals (out now, overdue, upcoming, past, cancelled) with inspection records and service history. It only manages its own `demo-` rows, so it is safe to re-run and leaves your own entries alone. Never run it with `--remote`. **Stop `npm run dev` before running any `wrangler d1 ... --local` command** (migrations, seed, creating users); a running dev server keeps the local database open and fails with "Failed to get session commit token" if it changes underneath it.
+**Demo data (local only):** `node scripts/seed-demo.mjs > demo.sql && npx wrangler d1 execute fleetdesk --local --file demo.sql && rm demo.sql` adds 30 vehicles, 28 customers and about 130 rentals (out now, overdue, upcoming, past, cancelled) with inspection records and service history. It only manages its own `demo-` rows, so it is safe to re-run and leaves your own entries alone. Never run it with `--remote`. **Stop `npm run dev` before running any `wrangler d1 ... --local` command** (migrations, seed, creating users); a running dev server keeps the local database open and fails with "Failed to get session commit token" if it changes underneath it.
 
 **Demo photos (local only):** after the demo data, with `npm run dev` stopped, run `node scripts/seed-demo-photos.mjs`. It adds placeholder images (`scripts/demo-photos/`, labelled "DEMO n") to most demo inspections (1-8 each), a few "added later" photos, and 1-5 gallery photos to most demo vehicles, written straight into the local database and R2. Re-running replaces its own photos. Use `--persist-to <dir>` to target another local state folder.
 
@@ -242,7 +242,7 @@ Arguments: `<username> "<name>" <admin|staff> [email]`. The username is 3-30 cha
 1. `npx wrangler login`
 2. Create resources:
    ```bash
-   npx wrangler d1 create car-rental            # copy the printed database_id into wrangler.jsonc
+   npx wrangler d1 create fleetdesk            # copy the printed database_id into wrangler.jsonc
    npx wrangler r2 bucket create car-rental-photos
    ```
    Do **not** enable public access or attach a custom domain to the bucket.
@@ -255,7 +255,7 @@ Arguments: `<username> "<name>" <admin|staff> [email]`. The username is 3-30 cha
    ```bash
    npm run db:migrate:remote
    USER_PASSWORD='...' node scripts/create-user.mjs admin "Your Name" admin > admin.sql
-   npx wrangler d1 execute car-rental --remote --file admin.sql && rm admin.sql
+   npx wrangler d1 execute fleetdesk --remote --file admin.sql && rm admin.sql
    ```
 5. `npm run deploy`
 6. Add the prefix-scoped 365-day lifecycle rule for `inspections/` (command under *Photo retention*) and a billing/usage alert in the Cloudflare dashboard.

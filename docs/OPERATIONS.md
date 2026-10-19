@@ -4,7 +4,7 @@ Everything here can be done without a developer unless it says otherwise.
 
 ## Where things live
 - **The app:** a Cloudflare Worker. The address is `https://car-rental.<your-subdomain>.workers.dev` (or your own domain if you attach one).
-- **Your data:** a Cloudflare database (D1, named `car-rental`) and a private photo store (R2, named `car-rental-photos`). Both are in the Cloudflare account that owns the app.
+- **Your data:** a Cloudflare database (D1, named `fleetdesk`) and a private photo store (R2, named `car-rental-photos`). Both are in the Cloudflare account that owns the app.
 - **The code:** the GitHub repository. Whoever owns the Cloudflare account and the GitHub repository owns the app.
 
 ## Phones and tablets
@@ -49,17 +49,17 @@ You need a computer with the project and Node installed, signed in to the Cloudf
 
 1. **Write down where you are now** (so you can undo the restore):
    ```
-   npx wrangler d1 time-travel info car-rental
+   npx wrangler d1 time-travel info fleetdesk
    ```
    It prints a *current bookmark*. Save it.
 2. **Find the moment you want to go back to.** Times are UTC (India is UTC + 5:30, so 3:00 pm India time is `09:30:00Z`):
    ```
-   npx wrangler d1 time-travel info car-rental --timestamp="2026-10-17T09:30:00Z"
+   npx wrangler d1 time-travel info fleetdesk --timestamp="2026-10-17T09:30:00Z"
    ```
    It prints a bookmark for that moment.
 3. **Restore.** This **overwrites the whole database** with how it was at that moment; everything entered since is lost (keep a note of anything entered since so staff can redo it):
    ```
-   npx wrangler d1 time-travel restore car-rental --bookmark=<bookmark from step 2>
+   npx wrangler d1 time-travel restore fleetdesk --bookmark=<bookmark from step 2>
    ```
 4. Open the app and check the Fleet and Rentals screens.
 5. **Undo:** if you restored to the wrong moment, run the same restore command with the bookmark you saved in step 1.
@@ -68,7 +68,7 @@ You need a computer with the project and Node installed, signed in to the Cloudf
 Ask a developer. They create a new admin directly in the database (this is the one thing that needs the project on a computer):
 ```
 USER_PASSWORD='a-long-new-password' node scripts/create-user.mjs newadmin "Name" admin > admin.sql
-npx wrangler d1 execute car-rental --remote --file admin.sql && rm admin.sql
+npx wrangler d1 execute fleetdesk --remote --file admin.sql && rm admin.sql
 ```
 
 ## Costs and safety

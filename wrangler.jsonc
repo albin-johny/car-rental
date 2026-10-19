@@ -12,8 +12,8 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "car-rental",
-      "database_id": "5c31f2c5-fca3-42a7-ae00-32a5ddf8394b",
+      "database_name": "fleetdesk",
+      "database_id": "1cbcb674-e58e-43be-ba0e-b7b4be39172f",
       "migrations_dir": "migrations"
     }
   ],

@@ -1,7 +1,7 @@
 // Prints SQL that fills a LOCAL database with demo vehicles, customers and rentals
 // (out now / overdue / upcoming / past / cancelled) plus inspection records and service history. Safe to re-run: it first removes
 // its own rows (ids starting with "demo-") and never touches anything else.
-//   node scripts/seed-demo.mjs > demo.sql && npx wrangler d1 execute car-rental --local --file demo.sql && rm demo.sql
+//   node scripts/seed-demo.mjs > demo.sql && npx wrangler d1 execute fleetdesk --local --file demo.sql && rm demo.sql
 // Do NOT run this against --remote: it would put fake data into the real books.
 
 let seed = 20261016;

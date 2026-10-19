@@ -17,7 +17,7 @@ export function SideNav({ name, role }: { name: string; role: string }) {
             <path d="M5 17h14M6 17l1.5-6h9L18 17M4 17v2m16-2v2M7.5 11l1-3h7l1 3" />
           </svg>
         </span>
-        <span className="hidden text-lg font-bold tracking-tight lg:block">Car Rental</span>
+        <span className="hidden text-lg font-bold tracking-tight lg:block">FleetDesk</span>
       </div>
 
       <nav aria-label="Main" className="flex-1 px-2 lg:px-3">

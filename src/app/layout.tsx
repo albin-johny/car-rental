@@ -6,14 +6,15 @@ import { SideNav } from "@/components/side-nav";
 import { PullToRefresh } from "@/components/pull-to-refresh";
 import { ConfirmProvider } from "@/components/confirm-sheet";
 import splashScreens from "@/lib/splash-screens.json";
+import { LaunchScreen } from "@/components/launch-screen";
 import { RegisterSW } from "@/components/register-sw";
 
 export const metadata: Metadata = {
-  title: { default: "Car Rental", template: "%s · Car Rental" },
-  applicationName: "Car Rental",
+  title: { default: "FleetDesk", template: "%s · FleetDesk" },
+  applicationName: "FleetDesk",
   appleWebApp: {
     capable: true,
-    title: "Car Rental",
+    title: "FleetDesk",
     statusBarStyle: "default",
     // iOS shows these while the installed app opens (one image per device size; made by scripts/make-icons.mjs).
     startupImage: splashScreens.map((d) => {
@@ -31,6 +32,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html lang="en-IN">
       <body>
         <ConfirmProvider>
+        <LaunchScreen />
         <RegisterSW />
         {user && <PullToRefresh />}
         {user && <SideNav name={user.name} role={user.role} />}

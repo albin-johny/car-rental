@@ -2,8 +2,8 @@
 // Users sign in with their username (or email).
 // Usage:
 //   USER_PASSWORD='...' node scripts/create-user.mjs <username> "<name>" <admin|staff> [email] > u.sql
-//   npx wrangler d1 execute car-rental --local  --file u.sql
-//   npx wrangler d1 execute car-rental --remote --file u.sql
+//   npx wrangler d1 execute fleetdesk --local  --file u.sql
+//   npx wrangler d1 execute fleetdesk --remote --file u.sql
 // If no email is given, a placeholder <username>@car-rental.local is stored.
 import { hashPassword } from "better-auth/crypto";
 

@@ -8,3 +8,6 @@ node_modules
 *.tsbuildinfo
 next-env.d.ts
 cloudflare-env.d.ts
+
+# database dumps / one-off SQL at the repo root (may contain real customer data)
+/*.sql
