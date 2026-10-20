@@ -5,6 +5,7 @@ import { istInputToIso, istYear } from "./time";
 import { customerFieldsSchema, discardIfUnused, upsertCustomer } from "./customers";
 import type { RentalStatus } from "./rental-constants";
 import { auditStatement, diff, type AuditUser } from "./audit";
+import { deleteThumb } from "./photo-thumbs";
 import { formatINR } from "./money";
 import { formatIST } from "./time";
 
@@ -467,4 +468,41 @@ export async function vehicleHasOpenRentals(vehicleId: string) {
     .bind(vehicleId)
     .first<{ n: number }>();
   return (r?.n ?? 0) > 0;
+}
+
+/**
+ * Permanently removes a CANCELLED rental (admin only, enforced by the caller) together with any draft inspection
+ * it still has. A one-line entry stays in the audit log (which is append-only and keeps no link to the row).
+ * Booked, active and returned rentals can never be deleted: they are income and handover records.
+ */
+export async function deleteCancelledRental(id: string, user: AuditUser): Promise<Result> {
+  const { DB: db, PHOTOS } = env();
+  const d = await db.prepare(`${SELECT_LIST} WHERE r.id = ?`).bind(id).first<RentalListItem>();
+  if (!d) return { error: "Rental not found" };
+  if (d.status !== "cancelled") return { error: "Only a cancelled rental can be deleted" };
+  const { results: photos } = await db
+    .prepare("SELECT p.r2_key FROM inspection_photos p JOIN inspections i ON i.id = p.inspection_id WHERE i.rental_id = ?")
+    .bind(id)
+    .all<{ r2_key: string }>();
+  const [, r] = await db.batch([
+    db.prepare("DELETE FROM inspections WHERE rental_id = ?1 AND EXISTS (SELECT 1 FROM rentals WHERE id = ?1 AND status = 'cancelled')").bind(id), // photos and notes go with it
+    db.prepare("DELETE FROM rentals WHERE id = ?1 AND status = 'cancelled'").bind(id),
+    auditStatement(
+      user,
+      {
+        action: "rental.deleted",
+        entityType: "rental",
+        entityId: id,
+        rentalId: id,
+        summary: `Deleted cancelled booking ${d.rental_number}: ${carLabel(d)} for ${d.customer_name}, ${formatIST(d.start_at)} to ${formatIST(d.end_at)}, ${formatINR(d.total_paise)}`,
+      },
+      "SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM rentals WHERE id = ?1)",
+      id,
+    ),
+  ]);
+  if (!r.meta.changes) return { error: "Only a cancelled rental can be deleted (its status has changed)" };
+  // Files after the rows: a failure here leaves at worst an orphan file, never a rental pointing at a missing photo.
+  await Promise.all(photos.flatMap((p) => [PHOTOS.delete(p.r2_key).catch(() => {}), deleteThumb(PHOTOS, p.r2_key)]));
+  await discardIfUnused(d.customer_id);
+  return { ok: true };
 }

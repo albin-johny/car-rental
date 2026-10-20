@@ -1,17 +1,34 @@
 "use client";
 import { useState, useTransition } from "react";
 import { useConfirm } from "./confirm-sheet";
-import { transitionAction } from "@/app/rentals/actions";
+import { deleteRentalAction, transitionAction } from "@/app/rentals/actions";
 import { StartInspectionButton } from "./start-inspection-button";
 import type { RentalStatus } from "@/lib/rental-constants";
 
 export type InspectionState = { pickup: "none" | "draft" | "done"; return: "none" | "draft" | "done" };
 
-export function RentalActions({ id, status, inspections, back }: { id: string; status: RentalStatus; inspections: InspectionState; back: string }) {
+export function RentalActions({ id, status, inspections, back, backToList = "/rentals", isAdmin = false }: { id: string; status: RentalStatus; inspections: InspectionState; back: string; backToList?: string; isAdmin?: boolean }) {
   const [pending, start] = useTransition();
   const [error, setError] = useState("");
   const ask = useConfirm();
-  if (status === "cancelled") return null;
+  if (status === "cancelled") {
+    if (!isAdmin) return null;
+    const remove = async () => {
+      if (!(await ask("Delete this cancelled booking for good?", { confirmLabel: "Delete", cancelLabel: "Keep it", danger: true }))) return;
+      setError("");
+      start(async () => {
+        const r = await deleteRentalAction(id, backToList);
+        if (r?.error) setError(r.error);
+      });
+    };
+    return (
+      <div className="space-y-2">
+        <button className="btn btn-secondary w-full text-red-600" disabled={pending} onClick={remove}>{pending ? "Deleting…" : "Delete this booking"}</button>
+        <p className="text-xs text-slate-500">Removes the cancelled booking for good. A line stays in the change history.</p>
+        {error && <p className="err" role="alert">{error}</p>}
+      </div>
+    );
+  }
   const cancel = async () => {
     if (!(await ask("Cancel this booking?", { confirmLabel: "Cancel booking", cancelLabel: "Keep it", danger: true }))) return;
     setError("");

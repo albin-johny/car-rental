@@ -63,7 +63,7 @@ export default async function RentalPage({ params, searchParams }: { params: Pro
         {r.notes && row("Notes", <span className="whitespace-pre-wrap font-normal">{r.notes}</span>)}
       </dl>
 
-      <RentalActions id={r.id} back={here} status={r.status} inspections={{ pickup: inspState(insp.pickup), return: inspState(insp.return) }} />
+      <RentalActions id={r.id} back={here} backToList={back} isAdmin={me.role === "admin"} status={r.status} inspections={{ pickup: inspState(insp.pickup), return: inspState(insp.return) }} />
 
       {me.role === "admin" && (
         <Link href={withBack(`/account/audit?rental=${r.id}`, here)} className="flex items-center justify-between card-link px-4 py-3 text-sm">

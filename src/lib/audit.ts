@@ -13,6 +13,7 @@ export type AuditAction =
   | "rental.created"
   | "rental.updated"
   | "rental.cancelled"
+  | "rental.deleted"
   | "inspection.completed"
   | "inspection.photo_added_later"
   | "inspection.photo_deleted_later"

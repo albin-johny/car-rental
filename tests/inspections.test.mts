@@ -1,7 +1,7 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { DB, PHOTOS, admin, jpeg, readings, rentalInput, seedBasics, staff, teardown } from "./helpers.mts";
-import { createRental } from "../src/lib/rentals.ts";
+import { createRental, deleteCancelledRental, transitionRental } from "../src/lib/rentals.ts";
 import {
   addAddendum, addInspectionPhoto, completeInspection, deleteInspectionPhoto, getInspection, getRentalInspections,
   listInspectionPhotos, reorderInspectionPhotos, saveDraft, startInspection,
@@ -11,7 +11,7 @@ import { isLatePhoto } from "../src/lib/inspection-constants.ts";
 before(async () => {
   await seedBasics();
   // One car per test, so a rental left "out" in one test doesn't block the next (that rule is tested on purpose below).
-  for (let n = 1; n <= 27; n++) {
+  for (let n = 1; n <= 30; n++) {
     await DB.prepare(`INSERT INTO vehicles(id,registration_number,make,model,year,fuel_type,transmission,seats,odometer_km,daily_rate_paise,deposit_paise,is_active,created_at,updated_at) VALUES (?1,?1,'Hyundai','i20',2023,'diesel','manual',5,10000,300000,0,1,?2,?2)`).bind(`w${n}`, new Date().toISOString()).run();
   }
 });
@@ -343,4 +343,25 @@ test("return: no allowance set means no extra-km charge", async () => {
   await completeInspection(i, await readings({ odometer_km: "19000" }), staff);
   const row = (await DB.prepare("SELECT total_paise t, extra_km x FROM rentals WHERE id=?").bind(r).first()) as { t: number; x: number };
   assert.deepEqual(row, { t: 300000, x: 0 });
+});
+
+test("only a cancelled rental can be deleted; its draft and photos go, the audit line stays", async () => {
+  const count = async (sql: string, ...a: string[]) => ((await DB.prepare(sql).bind(...a).first()) as { n: number }).n;
+  const r = await book({ vehicle_id: "w30", start_at: "2034-06-01T10:00", end_at: "2034-06-02T10:00", customer_name: "Delete Me", customer_phone: "9000099901" });
+  assert.match(String((await deleteCancelledRental(r, admin) as { error: string }).error), /Only a cancelled/, "a booked rental is kept");
+  const i = await draft(r, "pickup");
+  const ph = (await addInspectionPhoto(i, jpeg(), staff)) as { key: string };
+  assert.ok("ok" in (await transitionRental(r, "cancel", staff)));
+  assert.ok(await PHOTOS.get(ph.key), "the photo file exists before");
+  assert.ok("ok" in (await deleteCancelledRental(r, admin)));
+  assert.equal(await count("SELECT COUNT(*) n FROM rentals WHERE id=?", r), 0);
+  assert.equal(await count("SELECT COUNT(*) n FROM inspections WHERE rental_id=?", r), 0);
+  assert.equal(await count("SELECT COUNT(*) n FROM inspection_photos WHERE inspection_id=?", i), 0);
+  assert.equal(await PHOTOS.get(ph.key), null, "the photo file is removed too");
+  assert.equal(await count("SELECT COUNT(*) n FROM customers WHERE phone='9000099901'"), 0, "a customer with no other rentals is cleaned up");
+  assert.equal(await count("SELECT COUNT(*) n FROM audit_logs WHERE rental_id=? AND action='rental.deleted'", r), 1, "the log keeps one line");
+  assert.match(String((await deleteCancelledRental(r, admin) as { error: string }).error), /not found/i);
+  // A returned rental is never deletable.
+  const done = await book({ vehicle_id: "w29", start_at: "2026-01-01T10:00", end_at: "2026-01-02T10:00", record_as: "returned", start_km: "1", end_km: "2" });
+  assert.match(String((await deleteCancelledRental(done, admin) as { error: string }).error), /Only a cancelled/);
 });

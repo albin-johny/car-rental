@@ -14,6 +14,7 @@ const BADGE: Record<AuditAction, { label: string; cls: string }> = {
   "rental.created": { label: "Rental created", cls: "bg-green-50 text-green-700" },
   "rental.updated": { label: "Rental edited", cls: "bg-amber-50 text-amber-700" },
   "rental.cancelled": { label: "Rental cancelled", cls: "bg-red-50 text-red-700" },
+  "rental.deleted": { label: "Rental deleted", cls: "bg-red-50 text-red-700" },
   "inspection.completed": { label: "Inspection completed", cls: "bg-blue-50 text-blue-700" },
   "inspection.photo_added_later": { label: "Photo added later", cls: "bg-amber-50 text-amber-700" },
   "inspection.photo_deleted_later": { label: "Late photo deleted", cls: "bg-red-50 text-red-700" },

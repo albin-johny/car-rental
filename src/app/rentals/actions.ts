@@ -2,8 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { requireUser } from "@/lib/session";
-import { createRental, listRentalsPage, type RentalListItem, type RentalTab, rentalSchema, transitionRental, updateRental, type Transition } from "@/lib/rentals";
+import { requireAdmin, requireUser } from "@/lib/session";
+import { createRental, deleteCancelledRental, listRentalsPage, type RentalListItem, type RentalTab, rentalSchema, transitionRental, updateRental, type Transition } from "@/lib/rentals";
 import { customerFieldsSchema, normalizePhone, updateCustomer } from "@/lib/customers";
 import type { FormState } from "../vehicles/actions";
 import { safeBack, withBack } from "@/lib/nav";
@@ -76,4 +76,15 @@ export async function loadMoreRentalsAction(f: { tab: string; q?: string; vehicl
   await requireUser();
   const tab = (TABS as readonly string[]).includes(f.tab) ? (f.tab as RentalTab) : "all";
   return listRentalsPage({ tab, q: f.q, vehicleId: f.vehicle, after });
+}
+
+/** Admin only: permanently delete a cancelled rental, then leave its (now missing) page. */
+export async function deleteRentalAction(id: string, back: string): Promise<{ error?: string }> {
+  const user = await requireAdmin();
+  const r = await deleteCancelledRental(id, user);
+  if ("error" in r) return { error: r.error };
+  refresh();
+  revalidatePath("/customers");
+  revalidatePath("/reports", "layout");
+  redirect(safeBack(back, "/rentals"));
 }
