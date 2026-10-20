@@ -1,7 +1,7 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { DB, seedBasics, staff, rentalInput, teardown } from "./helpers.mts";
-import { createRental, fleetBoard, listRentals, rentalSchema, rentalStats, transitionRental, updateRental, vehicleHasOpenRentals } from "../src/lib/rentals.ts";
+import { createRental, fleetBoard, listRentals, listRentalsPage, rentalSchema, rentalStats, transitionRental, updateRental, vehicleHasOpenRentals } from "../src/lib/rentals.ts";
 import { suggestCustomers } from "../src/lib/customers.ts";
 
 before(seedBasics);
@@ -178,4 +178,27 @@ test("already out must have started by now; completed must have ended by now", (
   assert.ok(rentalSchema.safeParse({ ...base, start_at: ist(-3), end_at: ist(2), record_as: "active" }).success, "an out car may be due back in the future");
   assert.ok(rentalSchema.safeParse({ ...base, start_at: ist(3), end_at: ist(5), record_as: "booked" }).success, "a booking can be in the future");
   assert.ok(rentalSchema.safeParse({ ...base, start_at: ist(-5), end_at: ist(-3), record_as: "returned", end_km: "200" }).success, "a past rental");
+});
+
+test("rentals are listed a page at a time; the cursor never skips or repeats, even for equal start times", async () => {
+  const ids: string[] = [];
+  for (let d = 1; d <= 6; d++) ids.push((await mk({ vehicle_id: "v2", start_at: `2033-05-${String(d).padStart(2, "0")}T10:00`, end_at: `2033-05-${String(d).padStart(2, "0")}T18:00`, customer_name: `Paged ${d}`, customer_phone: `90000100${d}` })).id);
+  // Two more at the very same start time (another car), so the date alone can't order them.
+  ids.push((await mk({ vehicle_id: "v1", start_at: "2033-05-03T10:00", end_at: "2033-05-03T18:00", customer_name: "Paged 7", customer_phone: "9000010077" })).id);
+  const seen: string[] = [];
+  let after: string | undefined;
+  let pages = 0;
+  do {
+    const p = await listRentalsPage({ tab: "all", q: "Paged", after }, 3);
+    assert.ok(p.rows.length <= 3);
+    seen.push(...p.rows.map((r) => r.id));
+    after = p.next ?? undefined;
+    pages++;
+  } while (after);
+  assert.equal(pages, 3, "7 rows at 3 per page");
+  assert.equal(new Set(seen).size, 7, "no repeats");
+  assert.deepEqual([...seen].sort(), [...ids].sort(), "no skips");
+  const starts = (await Promise.all(seen.map((id) => DB.prepare("SELECT start_at s FROM rentals WHERE id=?").bind(id).first<{ s: string }>()))).map((r) => r!.s);
+  assert.deepEqual(starts, [...starts].sort().reverse(), "newest first");
+  assert.equal((await listRentalsPage({ tab: "all", q: "Paged" }, 7)).next, null, "an exactly-full last page has no next");
 });

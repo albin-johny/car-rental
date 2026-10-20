@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/session";
-import { createRental, rentalSchema, transitionRental, updateRental, type Transition } from "@/lib/rentals";
+import { createRental, listRentalsPage, type RentalListItem, type RentalTab, rentalSchema, transitionRental, updateRental, type Transition } from "@/lib/rentals";
 import { customerFieldsSchema, normalizePhone, updateCustomer } from "@/lib/customers";
 import type { FormState } from "../vehicles/actions";
 import { safeBack, withBack } from "@/lib/nav";
@@ -67,4 +67,13 @@ export async function updateCustomerAction(id: string, _: FormState, formData: F
   revalidatePath(`/customers/${id}`);
   revalidatePath("/rentals");
   return { message: "Saved", values };
+}
+
+const TABS = ["active", "upcoming", "past", "cancelled", "all"] as const;
+
+/** "Show more" on the Rentals tab: the page after `after` for the same filters. */
+export async function loadMoreRentalsAction(f: { tab: string; q?: string; vehicle?: string }, after: string): Promise<{ rows: RentalListItem[]; next: string | null }> {
+  await requireUser();
+  const tab = (TABS as readonly string[]).includes(f.tab) ? (f.tab as RentalTab) : "all";
+  return listRentalsPage({ tab, q: f.q, vehicleId: f.vehicle, after });
 }

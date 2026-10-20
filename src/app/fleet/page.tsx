@@ -1,3 +1,4 @@
+import { ScrollRestore } from "@/components/scroll-restore";
 import Link from "next/link";
 import { requireUser } from "@/lib/session";
 import { fleetBoard, listDueBack, rentalStats, type FleetCard } from "@/lib/rentals";
@@ -87,6 +88,7 @@ export default async function FleetPage({ searchParams }: { searchParams: Promis
         <input name="q" defaultValue={sp.q ?? ""} type="search" placeholder="Search car or renter" className="input" aria-label="Search fleet" />
         <button className="btn btn-secondary">Search</button>
       </form>
+      <ScrollRestore />
       <ChipNav label="Filter fleet" chips={FILTERS.map(([k, label]) => ({ href: `/fleet?${new URLSearchParams({ show: k, ...(sp.q ? { q: sp.q } : {}) })}`, label, active: show === k }))} />
       {shown.length === 0 ? (
         <p className="py-8 text-center text-slate-500">{q ? "No cars match your search." : "No vehicles here."}</p>

@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/session";
-import { listRentals, type RentalTab } from "@/lib/rentals";
+import { listRentalsPage, type RentalTab } from "@/lib/rentals";
 import { getVehicle } from "@/lib/vehicles";
 import { selfUrl, withBack } from "@/lib/nav";
-import { RentalCard } from "@/components/rental-card";
 import { ChipNav } from "@/components/chip-nav";
+import { RentalList } from "@/components/rental-list";
+import { loadMoreRentalsAction } from "./actions";
 
 export const metadata = { title: "Rentals" };
 
@@ -14,8 +15,8 @@ export default async function RentalsPage({ searchParams }: { searchParams: Prom
   await requireUser();
   const sp = await searchParams;
   const tab = (TABS.find(([k]) => k === sp.tab)?.[0] ?? "active") as RentalTab;
-  const [rentals, vehicle] = await Promise.all([
-    listRentals({ tab, q: sp.q, vehicleId: sp.vehicle }),
+  const [{ rows: rentals, next }, vehicle] = await Promise.all([
+    listRentalsPage({ tab, q: sp.q, vehicleId: sp.vehicle }),
     sp.vehicle ? getVehicle(sp.vehicle) : null,
   ]);
   const here = selfUrl("/rentals", { tab, q: sp.q, vehicle: sp.vehicle });
@@ -42,7 +43,7 @@ export default async function RentalsPage({ searchParams }: { searchParams: Prom
       {rentals.length === 0 ? (
         <p className="py-8 text-center text-slate-500">No rentals found.</p>
       ) : (
-        <ul className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{rentals.map((r) => <li key={r.id}><RentalCard r={r} from={here} /></li>)}</ul>
+        <RentalList key={here} initial={rentals} next={next} filters={{ tab, q: sp.q, vehicle: sp.vehicle }} from={here} loadMore={loadMoreRentalsAction} />
       )}
       <p className="text-center text-sm"><Link href={withBack("/customers", here)} className="text-blue-700">View customers →</Link></p>
     </div>

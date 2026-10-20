@@ -355,7 +355,21 @@ export async function getRentalDetail(id: string) {
 
 export type RentalTab = "active" | "upcoming" | "past" | "cancelled" | "all";
 
-export async function listRentals(opts: { tab?: RentalTab; q?: string; vehicleId?: string; customerId?: string; limit?: number }) {
+const sortOf = (tab: RentalTab) => (tab === "active" ? { col: "end_at", dir: "ASC" } : tab === "upcoming" ? { col: "start_at", dir: "ASC" } : { col: "start_at", dir: "DESC" }) as { col: "end_at" | "start_at"; dir: "ASC" | "DESC" };
+
+export const RENTALS_PAGE = 30;
+
+/** One page of the Rentals list plus the cursor for the next one (null when that was the last page). */
+export async function listRentalsPage(opts: { tab?: RentalTab; q?: string; vehicleId?: string; after?: string }, size = RENTALS_PAGE) {
+  const rows = await listRentals({ ...opts, limit: size + 1 });
+  const more = rows.length > size;
+  const page = more ? rows.slice(0, size) : rows;
+  const last = page[page.length - 1];
+  const col = sortOf(opts.tab ?? "all").col;
+  return { rows: page, next: more && last ? `${last[col]}|${last.id}` : null };
+}
+
+export async function listRentals(opts: { tab?: RentalTab; q?: string; vehicleId?: string; customerId?: string; limit?: number; after?: string }) {
   const where: string[] = [];
   const args: unknown[] = [];
   const add = (sql: string, ...a: unknown[]) => {
@@ -384,10 +398,14 @@ export async function listRentals(opts: { tab?: RentalTab; q?: string; vehicleId
       ...(digits.length >= 3 ? [esc(digits)] : []),
     );
   }
-  const order =
-    tab === "active" ? "r.end_at ASC" : tab === "upcoming" ? "r.start_at ASC" : "r.start_at DESC";
+  // Sorted by one date column, with the id as a tie-break so a cursor (date|id) points at exactly one place in the list.
+  const { col, dir } = sortOf(tab);
+  if (opts.after) {
+    const [key, id] = opts.after.split("|");
+    if (key && id) add(`(r.${col}, r.id) ${dir === "ASC" ? ">" : "<"} (?, ?)`, key, id);
+  }
   const { results } = await env()
-    .DB.prepare(`${SELECT_LIST} ${where.length ? "WHERE " + where.join(" AND ") : ""} ORDER BY ${order} LIMIT ${opts.limit ?? 200}`)
+    .DB.prepare(`${SELECT_LIST} ${where.length ? "WHERE " + where.join(" AND ") : ""} ORDER BY r.${col} ${dir}, r.id ${dir} LIMIT ${opts.limit ?? 200}`)
     .bind(...args)
     .all<RentalListItem>();
   return results;

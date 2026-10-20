@@ -1,3 +1,4 @@
+import { ScrollRestore } from "@/components/scroll-restore";
 import Link from "next/link";
 import { requireUser } from "@/lib/session";
 import { listVehicles } from "@/lib/vehicles";
@@ -32,6 +33,7 @@ export default async function VehiclesPage({ searchParams }: { searchParams: Pro
         <input name="q" defaultValue={sp.q ?? ""} type="search" placeholder="Search car or reg. no." className="input" aria-label="Search vehicles" />
         <button className="btn btn-secondary">Search</button>
       </form>
+      <ScrollRestore />
       <ChipNav label="Filter vehicles" chips={TABS.map(([s, label]) => ({ href: href(s), label, active: status === s }))} />
       {vehicles.length === 0 ? (
         <p className="py-8 text-center text-slate-500">No vehicles found.</p>

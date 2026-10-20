@@ -1,3 +1,4 @@
+import { BackTracker } from "@/components/scroll-restore";
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { getUser } from "@/lib/session";
@@ -34,6 +35,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <ConfirmProvider>
         <LaunchScreen />
         <RegisterSW />
+        <BackTracker />
         {user && <PullToRefresh />}
         {user && <SideNav name={user.name} role={user.role} />}
         {/* Phones: one column above the tab bar. Tablets and up: content sits to the right of the side rail and uses the width. */}
