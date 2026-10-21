@@ -19,7 +19,7 @@ test("creating a rental writes exactly one entry, naming who did it", async () =
   assert.equal(rows[0].user_name, "Sam Staff");
   assert.equal(rows[0].rental_id, r.id);
   assert.match(rows[0].summary, /Maruti Swift \(v1\) for Ravi Kumar/);
-  assert.match(rows[0].summary, /₹5,000/);
+  assert.doesNotMatch(rows[0].summary, /₹/, "no amount until it is returned");
 });
 
 test("a rejected booking (overlap) leaves no entry and no stray customer", async () => {
@@ -38,14 +38,12 @@ test("simultaneous bookings: exactly one wins and exactly one 'created' entry is
 
 test("editing records only what changed, with before/after", async () => {
   const r = (await createRental(await rentalInput({ vehicle_id: "v2", start_at: "2032-02-01T10:00", end_at: "2032-02-03T10:00" }), staff)) as { id: string };
-  const res = await updateRental(r.id, await rentalInput({ vehicle_id: "v2", start_at: "2032-02-01T10:00", end_at: "2032-02-03T10:00", total: "7500.50", notes: "late fee agreed" }), admin);
+  const res = await updateRental(r.id, await rentalInput({ vehicle_id: "v2", start_at: "2032-02-01T10:00", end_at: "2032-02-03T10:00", notes: "late fee agreed" }), admin);
   assert.ok("ok" in res);
   const row = (await logs("action = 'rental.updated' AND rental_id = ?", r.id))[0];
   assert.equal(row.user_name, "Asha Admin");
   const changes = JSON.parse(row.changes);
-  assert.deepEqual(changes.map((c: { field: string }) => c.field).sort(), ["Notes", "Total rent"]);
-  const total = changes.find((c: { field: string }) => c.field === "Total rent");
-  assert.deepEqual([total.from, total.to], ["₹5,000.00", "₹7,500.50"]);
+  assert.deepEqual(changes.map((c: { field: string }) => c.field).sort(), ["Notes"]);
 });
 
 test("saving an edit that changes nothing writes no entry", async () => {

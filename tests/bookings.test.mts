@@ -1,7 +1,7 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { DB, seedBasics, staff, rentalInput, teardown } from "./helpers.mts";
-import { createRental, fleetBoard, listRentals, listRentalsPage, rentalSchema, rentalStats, transitionRental, updateRental, vehicleHasOpenRentals } from "../src/lib/rentals.ts";
+import { correctRental, correctionSchema, createRental, fleetBoard, listRentals, listRentalsPage, rentalSchema, rentalStats, transitionRental, updateRental, vehicleHasOpenRentals } from "../src/lib/rentals.ts";
 import { suggestCustomers } from "../src/lib/customers.ts";
 
 before(seedBasics);
@@ -10,13 +10,13 @@ after(teardown);
 const mk = async (o: Record<string, string> = {}, who = staff) => (await createRental(await rentalInput(o), who)) as { id: string } & { error?: string };
 const status = async (id: string) => ((await DB.prepare("SELECT status FROM rentals WHERE id=?").bind(id).first()) as { status: string }).status;
 
-test("a booking is saved with a number, UTC times and integer paise", async () => {
+test("a booking is saved with a number and UTC times; its rent is not stored until it returns", async () => {
   const r = await mk();
   assert.ok(r.id);
   const row = (await DB.prepare("SELECT * FROM rentals WHERE id=?").bind(r.id).first()) as Record<string, unknown>;
   assert.match(String(row.rental_number), /^R-\d{4}-0001$/);
   assert.equal(row.start_at, "2030-01-10T04:30:00.000Z"); // 10:00 IST
-  assert.equal(row.total_paise, 500000);
+  assert.equal(row.total_paise, 0);
   assert.equal(row.status, "booked");
 });
 
@@ -60,9 +60,9 @@ test("the same name + phone reuses one customer (typed any way); suggestions fin
 });
 
 test("form validation reports each bad field", () => {
-  const bad = rentalSchema.safeParse({ customer_name: "", customer_phone: "12", vehicle_id: "", start_at: "x", end_at: "2030-01-01T00:00", total: "-1" });
+  const bad = rentalSchema.safeParse({ customer_name: "", customer_phone: "12", vehicle_id: "", start_at: "x", end_at: "2030-01-01T00:00" });
   assert.ok(!bad.success);
-  assert.deepEqual([...new Set(bad.error.issues.map((i) => i.path[0]))].sort(), ["customer_name", "customer_phone", "start_at", "total", "vehicle_id"]);
+  assert.deepEqual([...new Set(bad.error.issues.map((i) => i.path[0]))].sort(), ["customer_name", "customer_phone", "start_at", "vehicle_id"]);
   assert.ok(!rentalSchema.safeParse({ customer_name: "A", customer_phone: "9876543210", vehicle_id: "v1", start_at: "2030-01-10T10:00", end_at: "2030-01-10T10:00", total: "1" }).success, "end must be after start");
 });
 
@@ -201,4 +201,22 @@ test("rentals are listed a page at a time; the cursor never skips or repeats, ev
   const starts = (await Promise.all(seen.map((id) => DB.prepare("SELECT start_at s FROM rentals WHERE id=?").bind(id).first<{ s: string }>()))).map((r) => r!.s);
   assert.deepEqual(starts, [...starts].sort().reverse(), "newest first");
   assert.equal((await listRentalsPage({ tab: "all", q: "Paged" }, 7)).next, null, "an exactly-full last page has no next");
+});
+
+test("admin correction of a returned rental: dates fixed, rent recalculated, logged with the reason; clashes refused", async () => {
+  const a = await mk({ vehicle_id: "v1", start_at: "2022-03-01T10:00", end_at: "2022-03-02T10:00", record_as: "returned", start_km: "100", end_km: "200" });
+  const b = await mk({ vehicle_id: "v1", start_at: "2022-03-10T10:00", end_at: "2022-03-11T10:00", record_as: "returned", start_km: "200", end_km: "300" });
+  const fix = (o: Record<string, string>) => correctionSchema.parse({ start_at: "2022-03-01T10:00", end_at: "2022-03-04T10:00", pickup_at: "2022-03-01T10:00", return_at: "2022-03-04T10:00", reason: "wrong return date", password: "x", ...o });
+  const row = async () => (await DB.prepare("SELECT total_paise t, actual_return_at r FROM rentals WHERE id=?").bind(a.id).first()) as { t: number; r: string };
+  assert.ok("ok" in (await correctRental(a.id, fix({}), { id: "admin1", name: "Asha Admin" })));
+  assert.equal((await row()).t, 3 * 250000, "3 days x the daily rate");
+  const log = (await DB.prepare("SELECT summary, user_name FROM audit_logs WHERE rental_id=? AND action='rental.updated'").bind(a.id).first()) as { summary: string; user_name: string };
+  assert.match(log.summary, /wrong return date/);
+  assert.equal(log.user_name, "Asha Admin");
+  assert.ok("error" in (await correctRental(a.id, fix({}), { id: "admin1", name: "Asha Admin" })), "nothing changed");
+  assert.ok("error" in (await correctRental(a.id, fix({ end_at: "2022-03-12T10:00", return_at: "2022-03-12T10:00" }), { id: "admin1", name: "Asha Admin" })), "now overlaps the next rental");
+  assert.equal((await row()).t, 3 * 250000, "a refused correction changes nothing");
+  assert.ok("ok" in (await correctRental(a.id, fix({ total: "1234" }), { id: "admin1", name: "Asha Admin" })), "same dates, a typed total");
+  assert.equal((await row()).t, 123400, "the typed total wins over the calculation");
+  assert.ok(b.id);
 });

@@ -35,10 +35,10 @@ before(async () => {
   await add("B", "2026-10-16T04:30:00Z", "2026-10-18T04:30:00Z", "active", 700000, { pickup: "2026-10-16T04:30:00Z" });
   await add("B", "2026-10-25T04:30:00Z", "2026-10-26T04:30:00Z", "booked", 123400);
   await add("C", "2026-10-02T04:30:00Z", "2026-10-03T04:30:00Z", "returned", 40000, done("2026-10-02T04:30:00Z", "2026-10-03T04:30:00Z")); // inactive car
-  // 30 Sep 23:59:59 IST vs 1 Oct 00:00:00 IST
-  await add("D", "2026-09-30T18:29:59Z", "2026-10-02T18:29:59Z", "returned", 111100, done("2026-09-30T18:29:59Z", "2026-10-02T18:29:59Z"));
-  await add("D", "2026-09-30T18:30:00Z", "2026-10-01T18:30:00Z", "returned", 222200, done("2026-09-30T18:30:00Z", "2026-10-01T18:30:00Z"));
-  // starts in September, runs into October: counted in September only
+  // Returned at 30 Sep 23:59:59 IST vs 1 Oct 00:00:00 IST: the return (closing) time decides the month
+  await add("D", "2026-09-28T18:29:59Z", "2026-09-30T18:29:59Z", "returned", 111100, done("2026-09-28T18:29:59Z", "2026-09-30T18:29:59Z"));
+  await add("D", "2026-09-29T18:30:00Z", "2026-09-30T18:30:00Z", "returned", 222200, done("2026-09-29T18:30:00Z", "2026-09-30T18:30:00Z"));
+  // starts in September, returned in October: counted in October (when it closes)
   await add("B", "2026-09-28T04:30:00Z", "2026-10-02T04:30:00Z", "returned", 800000, done("2026-09-28T04:30:00Z", "2026-10-02T04:30:00Z"));
 });
 after(teardown);
@@ -49,23 +49,23 @@ test("October: rent, rentals and booked days per car", async () => {
   const rep = await incomeReport(oct, NOW);
   const c = byCar(rep);
   assert.deepEqual([c.A.rent_paise, c.A.rentals, c.A.days], [820000, 3, 6], "cancelled excluded; 2 + 3 + 1 days");
-  assert.deepEqual([c.B.rent_paise, c.B.rentals, c.B.days], [700000, 1, 2], "only the out-now rental; booked and September-start excluded");
+  assert.deepEqual([c.B.rent_paise, c.B.rentals, c.B.days], [800000, 1, 4], "started in September but returned in October: counted in October; out-now and booked rentals are not counted");
   assert.deepEqual([c.C.rent_paise, c.C.rentals], [40000, 1], "an inactive car with a rental is still listed");
-  assert.deepEqual([c.D.rent_paise, c.D.rentals], [222200, 1], "only the rental starting at 1 Oct 00:00:00 IST");
+  assert.deepEqual([c.D.rent_paise, c.D.rentals], [222200, 1], "only the rental returned at 1 Oct 00:00:00 IST");
   assert.deepEqual(rep.cars.map((x) => x.vehicle_id), ["A", "B", "D", "C"], "ranked by rent");
-  assert.deepEqual(rep.totals, { rent_paise: 1782200, rentals: 6, days: 10, avg_per_rental_paise: Math.round(1782200 / 6), avg_per_day_paise: Math.round(1782200 / 10) });
-  assert.deepEqual(rep.booked, { rentals: 1, rent_paise: 123400 }, "booked-not-out is reported separately");
+  assert.deepEqual(rep.totals, { rent_paise: 1882200, rentals: 6, days: 12, avg_per_rental_paise: Math.round(1882200 / 6), avg_per_day_paise: Math.round(1882200 / 12) });
+  assert.deepEqual(rep.booked, { rentals: 1, rent_paise: 100000 }, "booked-not-out is an estimate from the booked dates (1 day x rate), reported separately");
 });
 
-test("September: boundary rental belongs to September, nothing is double counted", async () => {
+test("September: a rental returned at 23:59:59 IST on 30 Sep belongs to September, nothing is double counted", async () => {
   const rep = await incomeReport(sep, NOW);
   const c = byCar(rep);
   assert.equal(c.D.rent_paise, 111100, "23:59:59 IST on 30 Sep");
-  assert.equal(c.B.rent_paise, 800000, "a rental that starts in September is not split into October");
+  assert.equal(c.B.rent_paise, 0, "a rental that starts in September but returns in October is not counted in September");
   assert.deepEqual([c.A.rentals, c.A.rent_paise], [0, 0], "active cars with no rentals are listed at zero");
   assert.equal(c.C, undefined, "an inactive car with nothing in the period is hidden");
-  assert.equal(rep.totals.rent_paise, 911100);
-  assert.equal((await incomeReport(oct, NOW)).totals.rent_paise + rep.totals.rent_paise, 1782200 + 911100);
+  assert.equal(rep.totals.rent_paise, 111100);
+  assert.equal((await incomeReport(oct, NOW)).totals.rent_paise + rep.totals.rent_paise, 1882200 + 111100);
 });
 
 test("utilisation matches an independent calculation", async () => {
@@ -113,4 +113,18 @@ test("lifetime income counts every rental that went out", async () => {
 test("due-back list: overdue first, within the window only", async () => {
   assert.deepEqual((await listDueBack(NOW, 24, 8)).map((r) => r.vehicle_id), ["B"], "ends exactly 24h from now");
   assert.equal((await listDueBack(NOW, 6, 8)).length, 0);
+});
+
+test("the ownership filter limits rent, rentals and utilisation to own or network cars", async () => {
+  await DB.prepare("UPDATE vehicles SET ownership='network', owner_name='Rahul' WHERE id IN ('B','D')").run();
+  const all = await incomeReport(oct, NOW);
+  const own = await incomeReport(oct, NOW, "own");
+  const net = await incomeReport(oct, NOW, "network");
+  assert.equal(own.totals.rent_paise + net.totals.rent_paise, all.totals.rent_paise);
+  assert.deepEqual(own.cars.map((c) => c.vehicle_id).sort(), ["A", "C"]);
+  assert.deepEqual(net.cars.map((c) => c.vehicle_id).sort(), ["B", "D"]);
+  assert.equal(own.utilisation!.cars, 1, "A only (C is inactive)");
+  assert.equal(net.utilisation!.cars, 2);
+  assert.deepEqual(net.booked, { rentals: 1, rent_paise: 100000 });
+  assert.equal(own.booked.rentals, 0);
 });

@@ -9,7 +9,7 @@ import { loadMoreRentalsAction } from "./actions";
 
 export const metadata = { title: "Rentals" };
 
-const TABS: [RentalTab, string][] = [["active", "Out now"], ["upcoming", "Upcoming"], ["past", "Past"], ["cancelled", "Cancelled"], ["all", "All"]];
+const TABS: [RentalTab, string][] = [["active", "Out now"], ["upcoming", "Upcoming"], ["past", "Returned"], ["unpaid", "Unpaid"], ["cancelled", "Cancelled"], ["all", "All"]];
 
 export default async function RentalsPage({ searchParams }: { searchParams: Promise<{ tab?: string; q?: string; vehicle?: string }> }) {
   await requireUser();

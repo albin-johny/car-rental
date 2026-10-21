@@ -3,7 +3,7 @@ import { env } from "./env";
 import { rupeesToPaise } from "./money";
 import { documentInsert, type NewDocument } from "./vehicle-docs";
 
-import { FUEL_TYPES, TRANSMISSIONS } from "./vehicle-constants";
+import { FUEL_TYPES, OWNERSHIPS, TRANSMISSIONS } from "./vehicle-constants";
 export { MAX_PHOTOS, MAX_PHOTO_BYTES } from "./vehicle-constants";
 
 export type Vehicle = {
@@ -20,6 +20,8 @@ export type Vehicle = {
   daily_rate_paise: number;
   daily_km_limit: number;
   extra_km_rate_paise: number;
+  ownership: (typeof OWNERSHIPS)[number];
+  owner_name: string | null;
   notes: string | null;
   is_active: number;
   created_at: string;
@@ -53,11 +55,13 @@ export const vehicleSchema = z.object({
   daily_rate_paise: money("Daily rate"),
   daily_km_limit: z.coerce.number({ message: "Enter the km allowed per day (0 for no limit)" }).int("Whole kilometres only").min(0).max(5000),
   extra_km_rate_paise: money("Extra km rate"),
+  ownership: z.enum(OWNERSHIPS).default("own"),
+  owner_name: z.string().trim().max(80).optional().transform((v) => v || null),
   notes: z.string().trim().max(1000).optional().transform((v) => v || null),
-});
+}).transform((v) => ({ ...v, owner_name: v.ownership === "network" ? v.owner_name : null }));
 export type VehicleInput = z.infer<typeof vehicleSchema>;
 
-export async function listVehicles(opts: { q?: string; status?: "active" | "inactive" | "all" }) {
+export async function listVehicles(opts: { q?: string; status?: "active" | "inactive" | "all"; ownership?: "own" | "network" }) {
   const where: string[] = [];
   const args: unknown[] = [];
   const status = opts.status ?? "active";
@@ -65,15 +69,19 @@ export async function listVehicles(opts: { q?: string; status?: "active" | "inac
     where.push("v.is_active = ?");
     args.push(status === "active" ? 1 : 0);
   }
+  if (opts.ownership) {
+    where.push("v.ownership = ?");
+    args.push(opts.ownership);
+  }
   const q = opts.q?.trim();
   if (q) {
     // Escape LIKE wildcards so user input is matched literally.
     const like = `%${q.replace(/[\\%_]/g, "\\$&")}%`;
     const reg = `%${normalizeReg(q).replace(/[\\%_]/g, "\\$&")}%`;
     where.push(
-      `(v.registration_number LIKE ? ESCAPE '\\' OR v.make LIKE ? ESCAPE '\\' OR v.model LIKE ? ESCAPE '\\' OR (v.make || ' ' || v.model) LIKE ? ESCAPE '\\')`,
+      `(v.registration_number LIKE ? ESCAPE '\\' OR v.make LIKE ? ESCAPE '\\' OR v.model LIKE ? ESCAPE '\\' OR v.owner_name LIKE ? ESCAPE '\\' OR (v.make || ' ' || v.model) LIKE ? ESCAPE '\\')`,
     );
-    args.push(reg, like, like, like);
+    args.push(reg, like, like, like, like);
   }
   const sql = `SELECT v.*, (SELECT p.id FROM vehicle_photos p WHERE p.vehicle_id = v.id ORDER BY p.created_at LIMIT 1) AS cover_photo_id
     FROM vehicles v ${where.length ? "WHERE " + where.join(" AND ") : ""}
@@ -94,7 +102,7 @@ export async function listPhotos(vehicleId: string) {
   return results;
 }
 
-const COLS = "registration_number,make,model,year,color,fuel_type,transmission,seats,odometer_km,daily_rate_paise,daily_km_limit,extra_km_rate_paise,notes";
+const COLS = "registration_number,make,model,year,color,fuel_type,transmission,seats,odometer_km,daily_rate_paise,daily_km_limit,extra_km_rate_paise,ownership,owner_name,notes";
 
 /** Returns {error} on a duplicate registration number. */
 /**
@@ -109,8 +117,8 @@ export async function insertVehicle(v: VehicleInput, docs: NewDocument[] = [], u
   try {
     await db.batch([
       db
-        .prepare(`INSERT INTO vehicles (id,${COLS},created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-        .bind(id, v.registration_number, v.make, v.model, v.year, v.color, v.fuel_type, v.transmission, v.seats, v.odometer_km, v.daily_rate_paise, v.daily_km_limit, v.extra_km_rate_paise, v.notes, now, now),
+        .prepare(`INSERT INTO vehicles (id,${COLS},created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+        .bind(id, v.registration_number, v.make, v.model, v.year, v.color, v.fuel_type, v.transmission, v.seats, v.odometer_km, v.daily_rate_paise, v.daily_km_limit, v.extra_km_rate_paise, v.ownership, v.owner_name, v.notes, now, now),
       ...rows.map((r) => r.stmt),
     ]);
     return { id, docs: Object.fromEntries(rows.map((r) => [r.type, r.id])) };
@@ -124,9 +132,9 @@ export async function updateVehicle(id: string, v: VehicleInput): Promise<{ ok: 
   try {
     const r = await env()
       .DB.prepare(
-        `UPDATE vehicles SET registration_number=?,make=?,model=?,year=?,color=?,fuel_type=?,transmission=?,seats=?,odometer_km=?,daily_rate_paise=?,daily_km_limit=?,extra_km_rate_paise=?,notes=?,updated_at=? WHERE id=?`,
+        `UPDATE vehicles SET registration_number=?,make=?,model=?,year=?,color=?,fuel_type=?,transmission=?,seats=?,odometer_km=?,daily_rate_paise=?,daily_km_limit=?,extra_km_rate_paise=?,ownership=?,owner_name=?,notes=?,updated_at=? WHERE id=?`,
       )
-      .bind(v.registration_number, v.make, v.model, v.year, v.color, v.fuel_type, v.transmission, v.seats, v.odometer_km, v.daily_rate_paise, v.daily_km_limit, v.extra_km_rate_paise, v.notes, new Date().toISOString(), id)
+      .bind(v.registration_number, v.make, v.model, v.year, v.color, v.fuel_type, v.transmission, v.seats, v.odometer_km, v.daily_rate_paise, v.daily_km_limit, v.extra_km_rate_paise, v.ownership, v.owner_name, v.notes, new Date().toISOString(), id)
       .run();
     if (!r.meta.changes) return { error: "Vehicle not found" };
     return { ok: true };

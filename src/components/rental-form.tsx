@@ -24,12 +24,10 @@ export function RentalForm({
   const [phone, setPhone] = useState(initial.customer_phone ?? "");
   const [start, setStart] = useState(initial.start_at ?? "");
   const [end, setEnd] = useState(initial.end_at ?? "");
-  const [total, setTotal] = useState(initial.total ?? "");
   const [kmLimit, setKmLimit] = useState(initial.km_limit ?? "");
   const [extraRate, setExtraRate] = useState(initial.extra_km_rate ?? "");
   const [notes, setNotes] = useState(initial.notes ?? "");
   const [recordAs, setRecordAs] = useState(initial.record_as ?? "booked");
-  const [touched, setTouched] = useState(mode !== "create"); // staff typed a total; stop auto-suggesting
   const [startKm, setStartKm] = useState(initial.start_km ?? "");
   const [endKm, setEndKm] = useState(initial.end_km ?? "");
   const [kmTouched, setKmTouched] = useState(mode !== "create");
@@ -38,10 +36,6 @@ export function RentalForm({
   const sIso = istInputToIso(start);
   const eIso = istInputToIso(end);
   const suggestion = rate !== undefined && sIso && eIso && eIso > sIso ? suggestTotalPaise(sIso, eIso, rate) : null;
-
-  useEffect(() => {
-    if (!touched && suggestion !== null) setTotal(paiseToInput(suggestion));
-  }, [suggestion, touched]);
 
   // A car that is already out (or was) starts from its last known reading; an upcoming booking leaves it blank.
   const car = vehicles.find((v) => v.id === vehicleId);
@@ -107,20 +101,11 @@ export function RentalForm({
         </div>
       </div>
 
-      <div>
-        <label className="label" htmlFor="total">Total rent (₹)</label>
-        <input id="total" name="total" value={total} inputMode="decimal" required className="input"
-          onChange={(e) => { setTotal(e.target.value); setTouched(true); }} />
-        {err.total && <p className="err">{err.total}</p>}
-        {suggestion !== null && sIso && eIso && (
-          <p className="mt-1 text-sm text-slate-500">
-            Suggested {formatINR(suggestion)} ({rentalDays(sIso, eIso)} day{rentalDays(sIso, eIso) > 1 ? "s" : ""} × {formatINR(rate!)})
-            {touched && total !== paiseToInput(suggestion) && (
-              <button type="button" className="ml-2 text-blue-700 underline" onClick={() => { setTotal(paiseToInput(suggestion)); setTouched(false); }}>Use</button>
-            )}
-          </p>
-        )}
-      </div>
+      {suggestion !== null && sIso && eIso && (
+        <p className="rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-600 ring-1 ring-slate-200">
+          Expected rent <b>{formatINR(suggestion)}</b> ({rentalDays(sIso, eIso)} day{rentalDays(sIso, eIso) > 1 ? "s" : ""} × {formatINR(rate!)}). The final rent is worked out at the return inspection, from the days the car is really out and the km driven.
+        </p>
+      )}
 
       <div className="grid grid-cols-2 gap-3">
         <div>

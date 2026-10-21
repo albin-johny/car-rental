@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { uploadInspectionPhotos } from "@/lib/inspection-upload";
 import { PhotoViewer } from "./photo-viewer";
 import { MAX_INSPECTION_PHOTOS, MIN_PHOTOS, fuelLabel } from "@/lib/inspection-constants";
-import { extraKmCharge } from "@/lib/rental-constants";
+import { extraKmCharge, rentalDays } from "@/lib/rental-constants";
+import { istInputToIso } from "@/lib/time";
 import { formatINR, paiseToInput, rupeesToPaise } from "@/lib/money";
 import type { FormState } from "@/app/vehicles/actions";
 
@@ -23,7 +24,7 @@ export function InspectionForm({
   carKm: number | null; // the car's last known reading when doing a pickup: a lower reading is probably a typo
   type: "pickup" | "return";
   defaultAt: string; // now, in India time, as a datetime-local value
-  billing: { startIso: string; endIso: string; limitPerDay: number; ratePaise: number; startKm: number | null; baseTotalPaise: number } | null; // return only: what the rent is worked out from
+  billing: { startIso: string; dailyRatePaise: number; limitPerDay: number; ratePaise: number; startKm: number | null } | null; // return only: what the rent is worked out from
   recordOnly: "out" | "returned" | null; // the rental is already past this step: only the record is added, its status is not changed
 }) {
   const router = useRouter();
@@ -37,11 +38,15 @@ export function InspectionForm({
   const [total, setTotal] = useState("");
   const [totalTouched, setTotalTouched] = useState(false);
 
-  // Return: rent = booked rent + extra km beyond the daily allowance. Follows the odometer until staff type their own total.
+  // Return: rent = 24-hour blocks from pickup to the return time x daily rate, + extra km beyond the allowance.
+  // Follows the return time and odometer until staff type their own total.
+  const returnIso = istInputToIso(at) ?? new Date().toISOString();
   const km = billing && odo.trim() !== "" && Number.isFinite(Number(odo))
-    ? extraKmCharge({ startIso: billing.startIso, endIso: billing.endIso, limitPerDay: billing.limitPerDay, ratePaise: billing.ratePaise, startKm: billing.startKm, endKm: Number(odo) })
+    ? extraKmCharge({ startIso: billing.startIso, endIso: returnIso, limitPerDay: billing.limitPerDay, ratePaise: billing.ratePaise, startKm: billing.startKm, endKm: Number(odo) })
     : null;
-  const calculated = billing ? billing.baseTotalPaise + (km?.chargePaise ?? 0) : null;
+  const days = billing ? rentalDays(billing.startIso, returnIso) : 0;
+  const rentPaise = billing ? days * billing.dailyRatePaise : 0;
+  const calculated = billing ? rentPaise + (km?.chargePaise ?? 0) : null;
   useEffect(() => {
     if (calculated !== null && !totalTouched) setTotal(paiseToInput(calculated));
   }, [calculated, totalTouched]);
@@ -134,7 +139,7 @@ export function InspectionForm({
           <div className="space-y-2 rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200">
             <h3 className="font-semibold">Rent</h3>
             <dl className="space-y-1 text-sm">
-              <div className="flex justify-between gap-3"><dt className="text-slate-500">Booked rent</dt><dd className="font-medium">{formatINR(billing.baseTotalPaise)}</dd></div>
+              <div className="flex justify-between gap-3"><dt className="text-slate-500">Rent ({days} day{days > 1 ? "s" : ""} × {formatINR(billing.dailyRatePaise)})</dt><dd className="font-medium">{formatINR(rentPaise)}</dd></div>
               {billing.limitPerDay > 0 && km && billing.startKm !== null ? (
                 <>
                   <div className="flex justify-between gap-3"><dt className="text-slate-500">Driven / allowed</dt><dd className="font-medium">{km.driven} / {km.allowed} km <span className="font-normal text-slate-500">({billing.limitPerDay} × {km.days} day{km.days > 1 ? "s" : ""})</span></dd></div>
@@ -154,7 +159,14 @@ export function InspectionForm({
                   <button type="button" className="ml-2 text-blue-700 underline" onClick={() => { setTotalTouched(false); setTotal(paiseToInput(calculated)); }}>Use calculated</button>
                 </p>
               )}
-              <p className="mt-1 text-xs text-slate-500">Edit this if you are giving a discount. It becomes the rental&apos;s total.</p>
+              <p className="mt-1 text-xs text-slate-500">Calculated from the pickup and return times. Edit it for a discount or any custom amount. It becomes the rental&apos;s total.</p>
+            </div>
+            <div>
+              <label className="label" htmlFor="payment">Payment</label>
+              <select id="payment" name="payment" defaultValue="paid" className="input">
+                <option value="paid">Paid</option>
+                <option value="pending">Pending (to be paid later)</option>
+              </select>
             </div>
           </div>
         )}

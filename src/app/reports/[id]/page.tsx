@@ -46,7 +46,7 @@ export default async function CarReportPage({ params, searchParams }: { params: 
         </form>
       )}
       <div>
-        <p className="text-sm text-slate-500">Rent in</p>
+        <p className="text-sm text-slate-500">Rent from rentals returned in</p>
         <h2 className="text-lg font-semibold">{period.label}</h2>
       </div>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -60,7 +60,7 @@ export default async function CarReportPage({ params, searchParams }: { params: 
 
       <section className="space-y-3">
         <h2 className="font-semibold">Rentals in this period ({rentals.length})</h2>
-        {rentals.length === 0 ? <p className="text-sm text-slate-500">No rentals started in this period.</p> : <ul className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{rentals.map((r) => <li key={r.id}><RentalCard r={r} from={here} /></li>)}</ul>}
+        {rentals.length === 0 ? <p className="text-sm text-slate-500">No rentals were returned in this period.</p> : <ul className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{rentals.map((r) => <li key={r.id}><RentalCard r={r} from={here} /></li>)}</ul>}
         <Link href={withBack(`/vehicles/${id}`, here)} className="block text-center text-sm text-blue-700">Open vehicle →</Link>
       </section>
     </div>

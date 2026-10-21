@@ -1,20 +1,23 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/session";
 import { incomeReport } from "@/lib/reports";
+import { pendingPayments } from "@/lib/rentals";
 import { PERIOD_CHIP, PERIOD_KEYS, istDateInput, periodDays, resolvePeriod } from "@/lib/periods";
 import { formatINR, formatINRShort } from "@/lib/money";
 import { selfUrl, withBack } from "@/lib/nav";
 import { ChipNav } from "@/components/chip-nav";
+import { FilterMenu } from "@/components/filter-menu";
 
 export const metadata = { title: "Reports" };
 
-export default async function ReportsPage({ searchParams }: { searchParams: Promise<{ p?: string; from?: string; to?: string }> }) {
+export default async function ReportsPage({ searchParams }: { searchParams: Promise<{ p?: string; from?: string; to?: string; owner?: string }> }) {
   await requireUser();
   const sp = await searchParams;
   const now = Date.now();
   const period = resolvePeriod(sp, now);
-  const report = await incomeReport(period, now);
-  const here = selfUrl("/reports", { p: period.key, from: sp.from, to: sp.to });
+  const owner = sp.owner === "own" || sp.owner === "network" ? sp.owner : undefined;
+  const [report, unpaid] = await Promise.all([incomeReport(period, now, owner), pendingPayments(period, owner)]);
+  const here = selfUrl("/reports", { p: period.key, from: sp.from, to: sp.to, owner });
   const maxRent = Math.max(1, ...report.cars.map((c) => c.rent_paise));
   const t = report.totals;
   const days = periodDays(period);
@@ -33,7 +36,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
       <ChipNav
         label="Report period"
         chips={PERIOD_KEYS.map((k) => ({
-          href: k === "custom" ? selfUrl("/reports", { p: "custom", from: sp.from ?? istDateInput(period.startMs), to: sp.to ?? istDateInput(period.endMs - 1) }) : `/reports?p=${k}`,
+          href: k === "custom" ? selfUrl("/reports", { p: "custom", from: sp.from ?? istDateInput(period.startMs), to: sp.to ?? istDateInput(period.endMs - 1), owner }) : selfUrl("/reports", { p: k, owner }),
           label: PERIOD_CHIP[k],
           active: period.key === k,
         }))}
@@ -41,6 +44,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
       {period.key === "custom" && (
         <form className="grid grid-cols-2 gap-2 card p-3">
           <input type="hidden" name="p" value="custom" />
+          {owner && <input type="hidden" name="owner" value={owner} />}
           <div><label className="label" htmlFor="from">From</label><input id="from" name="from" type="date" defaultValue={sp.from ?? istDateInput(period.startMs)} required className="input" /></div>
           <div><label className="label" htmlFor="to">To (inclusive)</label><input id="to" name="to" type="date" defaultValue={sp.to ?? istDateInput(period.endMs - 1)} required className="input" /></div>
           <button className="btn col-span-2">Show report</button>
@@ -48,9 +52,19 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
         </form>
       )}
 
-      <div>
-        <p className="text-sm text-slate-500">Rent by car · by rental start date</p>
-        <h2 className="text-lg font-semibold">{period.label}</h2>
+      <div className="flex items-end justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm text-slate-500">Rent by car · by the date the rental was returned</p>
+          <h2 className="text-lg font-semibold">{period.label}</h2>
+        </div>
+        <FilterMenu
+          label="Whose vehicles"
+          options={([[undefined, "All"], ["own", "Own"], ["network", "Network"]] as const).map(([o, label]) => ({
+            href: selfUrl("/reports", { p: period.key, from: period.key === "custom" ? sp.from : undefined, to: period.key === "custom" ? sp.to : undefined, owner: o }),
+            label,
+            active: owner === o,
+          }))}
+        />
       </div>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -77,9 +91,16 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
         )}
       </div>
 
+      {unpaid.count > 0 && (
+        <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-800">
+          Payment pending: <b>{formatINR(unpaid.total_paise)}</b> across {unpaid.count} rental{unpaid.count === 1 ? "" : "s"} returned in this period (included in the rent above, not yet received).{" "}
+          <Link href="/rentals?tab=unpaid" className="underline">See them</Link>
+        </p>
+      )}
+
       {report.booked.rentals > 0 && (
         <p className="rounded-xl bg-blue-50 px-4 py-3 text-sm text-blue-800">
-          Booked, not yet out: <b>{formatINR(report.booked.rent_paise)}</b> across {report.booked.rentals} rental{report.booked.rentals === 1 ? "" : "s"} starting in this period. Not counted above.
+          Booked, not yet out: about <b>{formatINR(report.booked.rent_paise)}</b> (estimate from the booked dates) across {report.booked.rentals} rental{report.booked.rentals === 1 ? "" : "s"} starting in this period. Not counted above; it counts once it is returned.
         </p>
       )}
 
@@ -109,9 +130,9 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
       <details className="card p-3 text-sm text-slate-600">
         <summary className="cursor-pointer font-medium text-slate-800">How this is calculated</summary>
         <ul className="mt-2 list-disc space-y-1 pl-5">
-          <li><b>Rent</b> is the agreed total of each rental that went out (Out now or Returned). Cancelled rentals count as zero.</li>
-          <li><b>Period:</b> a rental belongs to the period its <b>start date</b> falls in (India time). It is not split across periods.</li>
-          <li><b>Booked days:</b> 24-hour blocks per rental, rounded up, minimum 1.</li>
+          <li><b>Rent</b> is the final total settled at the return inspection of each returned rental. Cars still out and cancelled rentals are not counted until they are returned.</li>
+          <li><b>Period:</b> a rental belongs to the period it was <b>returned</b> in (India time), i.e. when it closes and the final rent is settled. It is not split across periods.</li>
+          <li><b>Booked days:</b> 24-hour blocks from the real pickup to the real return, rounded up, minimum 1.</li>
           <li><b>Utilisation:</b> time the active cars were out ÷ (active cars × time elapsed in the period, {days} day{days === 1 ? "" : "s"} in total).</li>
           <li>Booked rentals that haven&apos;t gone out are shown separately and never counted as rent.</li>
         </ul>

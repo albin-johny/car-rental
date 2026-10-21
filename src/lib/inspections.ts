@@ -6,7 +6,7 @@ import { MAX_INSPECTION_PHOTOS, MIN_PHOTOS, TYPE_LABEL, fuelLabel, type Inspecti
 import { auditStatement, type AuditChange } from "./audit";
 import { formatIST, istInputToIso } from "./time";
 import { deleteThumb } from "./photo-thumbs";
-import { extraKmCharge, type RentalStatus } from "./rental-constants";
+import { extraKmCharge, suggestTotalPaise, type RentalStatus } from "./rental-constants";
 import { formatINR, rupeesToPaise } from "./money";
 
 type Actor = { id: string; name: string; role: "admin" | "staff" };
@@ -41,7 +41,7 @@ export const readingsSchema = z.object({
   fuel_eighths: z.coerce.number().int().min(0).max(8),
   notes: z.string().trim().max(1000).optional().transform((v) => v || null),
   override_reason: z.string().trim().max(500).optional().transform((v) => v || null),
-  // Return only: the final total rent (the form pre-fills it with rent + extra km; staff may lower it for a discount).
+  // Return only: the final total rent (the form pre-fills it with calculated rent; staff may change it, e.g. for a discount).
   total: z
     .string()
     .optional()
@@ -51,6 +51,8 @@ export const readingsSchema = z.object({
       if (p === null) ctx.addIssue({ code: "custom", message: "Total must be a valid amount like 7500 or 7500.50" });
       return p;
     }),
+  // Return only: is the money in? Most customers pay at the return, so the default is paid.
+  payment: z.enum(["paid", "pending"]).default("paid"),
   // When the handover really happened (India time). Blank = now. Lets staff record a pickup / return afterwards.
   at: z
     .string()
@@ -309,10 +311,12 @@ export async function completeInspection(id: string, v: Readings, user: Actor): 
 
   const pickup = await getInspection(rental.id, "pickup");
   const startKm = pickup?.completed_at ? pickup.odometer_km : rental.start_km;
-  // Extra km beyond the daily allowance, charged at this rental's agreed rate. Without a typed total the
-  // rent becomes the booked rent plus that charge.
-  const km = extraKmCharge({ startIso: rental.start_at, endIso: rental.end_at, limitPerDay: rental.daily_km_limit, ratePaise: rental.extra_km_rate_paise, startKm, endKm: v.odometer_km });
-  const finalTotal = v.total ?? rental.total_paise + km.chargePaise;
+  // Rent runs from the real pickup to the real return in 24-hour blocks, plus the km beyond the allowance
+  // (which grows with the days). A typed total overrides the calculation.
+  const rentFrom = rental.actual_pickup_at ?? rental.start_at;
+  const km = extraKmCharge({ startIso: rentFrom, endIso: when, limitPerDay: rental.daily_km_limit, ratePaise: rental.extra_km_rate_paise, startKm, endKm: v.odometer_km });
+  const calculatedTotal = suggestTotalPaise(rentFrom, when, rental.rate_snapshot_paise) + km.chargePaise;
+  const finalTotal = v.total ?? calculatedTotal;
   if (insp.type === "pickup") {
     if (normal) {
       const other = await carStillOut(rental.vehicle_id, rental.id);
@@ -347,7 +351,7 @@ export async function completeInspection(id: string, v: Readings, user: Actor): 
         ? db.prepare(`UPDATE rentals SET status='active', actual_pickup_at=?5, start_km=?4, updated_at=?2 WHERE id=?1 AND status='booked' AND ${guard}`).bind(rental.id, now, id, v.odometer_km, when)
         : db.prepare(`UPDATE rentals SET actual_pickup_at=?5, start_km=?4, updated_at=?2 WHERE id=?1 AND status IN ('active','returned') AND ${guard}`).bind(rental.id, now, id, v.odometer_km, when)
       : normal
-        ? db.prepare(`UPDATE rentals SET status='returned', actual_return_at=?5, end_km=?4, total_paise=?6, extra_km=?7, extra_km_charge_paise=?8, updated_at=?2 WHERE id=?1 AND status='active' AND ${guard}`).bind(rental.id, now, id, v.odometer_km, when, finalTotal, km.extra, km.chargePaise)
+        ? db.prepare(`UPDATE rentals SET status='returned', actual_return_at=?5, end_km=?4, total_paise=?6, extra_km=?7, extra_km_charge_paise=?8, payment_status=?9, paid_at=?10, updated_at=?2 WHERE id=?1 AND status='active' AND ${guard}`).bind(rental.id, now, id, v.odometer_km, when, finalTotal, km.extra, km.chargePaise, v.payment, v.payment === "paid" ? when : null)
         : db.prepare(`UPDATE rentals SET actual_return_at=?5, end_km=?4, total_paise=?6, extra_km=?7, extra_km_charge_paise=?8, updated_at=?2 WHERE id=?1 AND status='returned' AND ${guard}`).bind(rental.id, now, id, v.odometer_km, when, finalTotal, km.extra, km.chargePaise);
 
   const label = TYPE_LABEL[insp.type].toLowerCase();
@@ -359,7 +363,8 @@ export async function completeInspection(id: string, v: Readings, user: Actor): 
     ...(insp.type === "return"
       ? [
           ...(km.extra > 0 ? [{ field: "Extra km", from: null, to: `${km.extra} km × ${formatINR(rental.extra_km_rate_paise)} = ${formatINR(km.chargePaise)} (${km.driven} km driven, ${km.allowed} km allowed)` }] : []),
-          { field: "Total rent", from: formatINR(rental.total_paise), to: formatINR(finalTotal) },
+          { field: "Total rent", from: null, to: `${formatINR(finalTotal)}${finalTotal !== calculatedTotal ? ` (calculated ${formatINR(calculatedTotal)})` : ""}` },
+          ...(normal ? [{ field: "Payment", from: null, to: v.payment === "paid" ? "Paid" : "Pending" }] : []),
         ]
       : []),
     ...(normal ? [{ field: "Rental status", from: insp.type === "pickup" ? "Booked" : "Out now", to: insp.type === "pickup" ? "Out now" : "Returned" }] : []),

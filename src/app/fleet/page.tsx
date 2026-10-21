@@ -1,7 +1,7 @@
 import { ScrollRestore } from "@/components/scroll-restore";
 import Link from "next/link";
 import { requireUser } from "@/lib/session";
-import { fleetBoard, listDueBack, rentalStats, type FleetCard } from "@/lib/rentals";
+import { fleetBoard, listDueBack, pendingPayments, rentalStats, type FleetCard } from "@/lib/rentals";
 import { totalRent } from "@/lib/reports";
 import { resolvePeriod } from "@/lib/periods";
 import { formatINRShort } from "@/lib/money";
@@ -26,7 +26,7 @@ export default async function FleetPage({ searchParams }: { searchParams: Promis
   const show = sp.show === "rented" || sp.show === "available" ? sp.show : "all";
   const now = Date.now();
   const month = resolvePeriod({ p: "month" }, now);
-  const [cards, stats, monthRent, dueBack] = await Promise.all([fleetBoard(), rentalStats(), totalRent(month), listDueBack(now, 24, 6)]);
+  const [cards, stats, monthRent, dueBack, unpaid] = await Promise.all([fleetBoard(), rentalStats(), totalRent(month), listDueBack(now, 24, 6), pendingPayments()]);
   const overdue = cards.filter((c) => c.overdue).length;
   const rented = cards.filter((c) => c.state === "rented").length;
   const here = selfUrl("/fleet", { show, q: sp.q });
@@ -61,6 +61,7 @@ export default async function FleetPage({ searchParams }: { searchParams: Promis
         {tile("Rentals so far", stats.totalEver, "/rentals?tab=all")}
         {tile(`Rent in ${month.label}`, formatINRShort(monthRent), "/reports?p=month")}
         {tile("Overdue", overdue, overdue ? "/fleet?show=rented" : undefined, overdue > 0)}
+        {unpaid.count > 0 && tile(`Payments pending (${unpaid.count})`, formatINRShort(unpaid.total_paise), "/rentals?tab=unpaid", true)}
       </div>
       {dueBack.length > 0 && (
         <section className="space-y-2">
@@ -108,7 +109,13 @@ export default async function FleetPage({ searchParams }: { searchParams: Promis
                     <p className="truncate font-medium">{c.vehicle.make} {c.vehicle.model}</p>
                     <Pill card={c} />
                   </div>
-                  <p className="font-mono text-sm text-slate-600">{c.vehicle.registration_number}</p>
+                  <p className="text-sm text-slate-600">
+                    <span className="font-mono">{c.vehicle.registration_number}</span>
+                    <span className="text-slate-400"> · </span>
+                    {c.vehicle.ownership === "network"
+                      ? <span className="text-violet-700">Network{c.vehicle.owner_name ? ` · ${c.vehicle.owner_name}` : ""}</span>
+                      : <span className="text-slate-500">Own</span>}
+                  </p>
                   {c.state === "rented" && c.current && (
                     <p className={`text-sm ${c.overdue ? "text-red-600" : "text-slate-600"}`}>{c.current.customer_name} · back {formatIST(c.current.end_at)}</p>
                   )}

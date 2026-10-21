@@ -3,7 +3,7 @@ import { env } from "./env";
 import { rupeesToPaise } from "./money";
 import { istInputToIso, istYear } from "./time";
 import { customerFieldsSchema, discardIfUnused, upsertCustomer } from "./customers";
-import type { RentalStatus } from "./rental-constants";
+import { extraKmCharge, suggestTotalPaise, type RentalStatus } from "./rental-constants";
 import { auditStatement, diff, type AuditUser } from "./audit";
 import { deleteThumb } from "./photo-thumbs";
 import { formatINR } from "./money";
@@ -24,6 +24,8 @@ export type Rental = {
   extra_km_rate_paise: number;
   extra_km: number | null;
   extra_km_charge_paise: number | null;
+  payment_status: "paid" | "pending";
+  paid_at: string | null;
   start_km: number | null;
   end_km: number | null;
   status: RentalStatus;
@@ -66,11 +68,6 @@ export const rentalSchema = customerFieldsSchema
     vehicle_id: z.string().min(1, "Choose a vehicle"),
     start_at: istDateTime("Start"),
     end_at: istDateTime("End"),
-    total: z.string().transform((v, ctx) => {
-      const p = rupeesToPaise(v);
-      if (p === null) ctx.addIssue({ code: "custom", message: "Total must be a valid amount like 7500 or 7500.50" });
-      return p ?? 0;
-    }),
     // Km allowed per day for this rental. Blank = the vehicle's own limit (0 = no limit).
     km_limit: kmField,
     // Rate per km beyond the daily allowance, agreed for this rental (a discount on the vehicle's rate is fine).
@@ -156,6 +153,16 @@ export async function createRental(v: RentalInput, user: AuditUser): Promise<Res
   const id = crypto.randomUUID();
   const pickup = v.record_as === "booked" ? null : v.start_at;
   const returned = v.record_as === "returned" ? v.end_at : null;
+  // The rent is worked out from the dates, so nothing is stored until the car is back. A rental entered as
+  // completed is already over: settle it now (days x rate + extra km).
+  let total = 0;
+  if (v.record_as === "returned") {
+    const veh = await db.prepare("SELECT daily_rate_paise, daily_km_limit, extra_km_rate_paise FROM vehicles WHERE id = ?").bind(v.vehicle_id).first<{ daily_rate_paise: number; daily_km_limit: number; extra_km_rate_paise: number }>();
+    if (veh) {
+      const km = extraKmCharge({ startIso: v.start_at, endIso: v.end_at, limitPerDay: v.km_limit ?? veh.daily_km_limit, ratePaise: v.extra_km_rate ?? veh.extra_km_rate_paise, startKm: v.start_km, endKm: v.end_km ?? 0 });
+      total = suggestTotalPaise(v.start_at, v.end_at, veh.daily_rate_paise) + km.chargePaise;
+    }
+  }
 
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
@@ -169,7 +176,7 @@ export async function createRental(v: RentalInput, user: AuditUser): Promise<Res
            FROM vehicles v, (SELECT COALESCE(MAX(seq), 0) + 1 AS n FROM rentals WHERE seq_year = CAST(?2 AS INTEGER)) s
            WHERE v.id = ?3 AND v.is_active = 1 AND ${OVERLAP("v.id", "?5", "?6")}`,
         )
-        .bind(id, istYear(), v.vehicle_id, customerId, v.start_at, v.end_at, v.total, v.record_as, v.notes, user.id, now, pickup, returned, v.start_km, v.record_as === "returned" ? v.end_km : null, v.extra_km_rate, v.km_limit),
+        .bind(id, istYear(), v.vehicle_id, customerId, v.start_at, v.end_at, total, v.record_as, v.notes, user.id, now, pickup, returned, v.start_km, v.record_as === "returned" ? v.end_km : null, v.extra_km_rate, v.km_limit),
         // The log entry is written in the same batch, and only if the rental row really exists.
         auditStatement(
           user,
@@ -178,7 +185,7 @@ export async function createRental(v: RentalInput, user: AuditUser): Promise<Res
             entityType: "rental",
             entityId: id,
             rentalId: id,
-            summary: `Created rental: ${car} for ${v.customer_name}, ${formatIST(v.start_at)} to ${formatIST(v.end_at)}, ${formatINR(v.total)}${v.record_as === "booked" ? "" : ` (entered as ${v.record_as === "active" ? "already out" : "completed"})`}${kmSummary(v.start_km, v.record_as === "returned" ? v.end_km : null)}`,
+            summary: `Created rental: ${car} for ${v.customer_name}, ${formatIST(v.start_at)} to ${formatIST(v.end_at)}${v.record_as === "returned" ? `, ${formatINR(total)}` : ""}${v.record_as === "booked" ? "" : ` (entered as ${v.record_as === "active" ? "already out" : "completed"})`}${kmSummary(v.start_km, v.record_as === "returned" ? v.end_km : null)}`,
           },
           "SELECT 1 FROM rentals WHERE id = ?1",
           id,
@@ -218,19 +225,18 @@ export async function updateRental(id: string, v: RentalInput, user: AuditUser):
     cur.status === "booked" ? vehicleLabel(v.vehicle_id) : Promise.resolve(null),
     db.prepare("SELECT name, phone FROM customers WHERE id = ?").bind(cur.customer_id).first<{ name: string; phone: string }>(),
   ]);
-  const before = { vehicle: oldCar, renter: `${oldCust?.name} (${oldCust?.phone})`, start: formatIST(cur.start_at), end: formatIST(cur.end_at), total: formatINR(cur.total_paise), notes: cur.notes, startKm: cur.start_km === null ? null : fmtKm(cur.start_km), extraKmRate: formatINR(cur.extra_km_rate_paise), kmLimit: `${cur.daily_km_limit} km/day` };
+  const before = { vehicle: oldCar, renter: `${oldCust?.name} (${oldCust?.phone})`, start: formatIST(cur.start_at), end: formatIST(cur.end_at), notes: cur.notes, startKm: cur.start_km === null ? null : fmtKm(cur.start_km), extraKmRate: formatINR(cur.extra_km_rate_paise), kmLimit: `${cur.daily_km_limit} km/day` };
   const after = {
     vehicle: newCar ?? oldCar,
     renter: `${v.customer_name} (${v.customer_phone})`,
     start: cur.status === "booked" ? formatIST(v.start_at) : before.start,
     end: formatIST(v.end_at),
-    total: formatINR(v.total),
     notes: v.notes,
     startKm: cur.status === "booked" ? (v.start_km === null ? null : fmtKm(v.start_km)) : before.startKm,
     kmLimit: v.km_limit === null ? (cur.status === "booked" && v.vehicle_id !== cur.vehicle_id ? "vehicle's limit" : before.kmLimit) : `${v.km_limit} km/day`,
     extraKmRate: v.extra_km_rate === null ? (cur.status === "booked" && v.vehicle_id !== cur.vehicle_id ? "vehicle's rate" : before.extraKmRate) : formatINR(v.extra_km_rate),
   };
-  const changes = diff({ vehicle: "Car", renter: "Renter", start: "Start", end: "End", total: "Total rent", notes: "Notes", startKm: "Starting km", extraKmRate: "Extra km rate", kmLimit: "Km allowed per day" }, before, after);
+  const changes = diff({ vehicle: "Car", renter: "Renter", start: "Start", end: "End", notes: "Notes", startKm: "Starting km", extraKmRate: "Extra km rate", kmLimit: "Km allowed per day" }, before, after);
   const result = await applyUpdate(cur, v, customer.id, user, changes);
   if ("error" in result && customer.created) await discardIfUnused(customer.id);
   return result;
@@ -260,10 +266,10 @@ async function applyUpdate(cur: Rental, v: RentalInput, customerId: string, user
     const [r] = await db.batch([
       db
         .prepare(
-          `UPDATE rentals SET customer_id=?2, end_at=?3, total_paise=?4, notes=?5, updated_at=?6, extra_km_rate_paise=COALESCE(?7, extra_km_rate_paise), daily_km_limit=COALESCE(?8, daily_km_limit)
+          `UPDATE rentals SET customer_id=?2, end_at=?3, notes=?4, updated_at=?5, extra_km_rate_paise=COALESCE(?6, extra_km_rate_paise), daily_km_limit=COALESCE(?7, daily_km_limit)
          WHERE id=?1 AND status='active' AND ${OVERLAP("rentals.vehicle_id", "rentals.start_at", "?3", "?1")}`,
         )
-        .bind(id, customerId, v.end_at, v.total, v.notes, now, v.extra_km_rate, v.km_limit),
+        .bind(id, customerId, v.end_at, v.notes, now, v.extra_km_rate, v.km_limit),
       ...log(),
     ]);
     return r.meta.changes ? { ok: true } : { error: await conflictMessage(cur.vehicle_id, cur.start_at, v.end_at, id) };
@@ -278,14 +284,14 @@ async function applyUpdate(cur: Rental, v: RentalInput, customerId: string, user
   const [r] = await db.batch([
     db
       .prepare(
-        `UPDATE rentals SET vehicle_id=?2, customer_id=?3, start_at=?4, end_at=?5, rate_snapshot_paise=?6, total_paise=?7, notes=?8, updated_at=?9, start_km=?10,
-           daily_km_limit=COALESCE(?12, (SELECT daily_km_limit FROM vehicles WHERE id=?2)),
-           extra_km_rate_paise=COALESCE(?11, (SELECT extra_km_rate_paise FROM vehicles WHERE id=?2))
+        `UPDATE rentals SET vehicle_id=?2, customer_id=?3, start_at=?4, end_at=?5, rate_snapshot_paise=?6, notes=?7, updated_at=?8, start_km=?9,
+           daily_km_limit=COALESCE(?11, (SELECT daily_km_limit FROM vehicles WHERE id=?2)),
+           extra_km_rate_paise=COALESCE(?10, (SELECT extra_km_rate_paise FROM vehicles WHERE id=?2))
        WHERE id=?1 AND status='booked'
          AND EXISTS (SELECT 1 FROM vehicles v WHERE v.id = ?2 AND v.is_active = 1)
          AND ${OVERLAP("?2", "?4", "?5", "?1")}`,
       )
-      .bind(id, v.vehicle_id, customerId, v.start_at, v.end_at, rate, v.total, v.notes, now, v.start_km, v.extra_km_rate, v.km_limit),
+      .bind(id, v.vehicle_id, customerId, v.start_at, v.end_at, rate, v.notes, now, v.start_km, v.extra_km_rate, v.km_limit),
     ...log(),
   ]);
   return r.meta.changes ? { ok: true } : { error: await conflictMessage(v.vehicle_id, v.start_at, v.end_at, id) };
@@ -311,7 +317,7 @@ export async function transitionRental(id: string, action: Transition, user: Aud
         entityType: "rental",
         entityId: id,
         rentalId: id,
-        summary: d ? `Cancelled booking: ${carLabel(d)} for ${d.customer_name}, ${formatIST(d.start_at)} to ${formatIST(d.end_at)}, ${formatINR(d.total_paise)}` : "Cancelled booking",
+        summary: d ? `Cancelled booking: ${carLabel(d)} for ${d.customer_name}, ${formatIST(d.start_at)} to ${formatIST(d.end_at)}` : "Cancelled booking",
       },
       "SELECT 1 FROM rentals WHERE id = ?1 AND status = 'cancelled' AND updated_at = ?2",
       id,
@@ -328,12 +334,12 @@ export async function getRental(id: string) {
 const SELECT_LIST = `SELECT r.*, v.registration_number, v.make, v.model, c.name AS customer_name, c.phone AS customer_phone
   FROM rentals r JOIN vehicles v ON v.id = r.vehicle_id JOIN customers c ON c.id = r.customer_id`;
 
-/** Rentals that went out (active or returned) and started inside [start, end). Same set the income report sums. */
+/** Rentals returned (closed) inside [start, end). Same set the income report sums. */
 export async function listWentOutBetween(start: string, end: string, vehicleId?: string) {
   const { results } = await env()
     .DB.prepare(
-      `${SELECT_LIST} WHERE r.status IN ('active','returned') AND r.start_at >= ?1 AND r.start_at < ?2 ${vehicleId ? "AND r.vehicle_id = ?3" : ""}
-       ORDER BY r.start_at DESC`,
+      `${SELECT_LIST} WHERE r.status = 'returned' AND r.actual_return_at >= ?1 AND r.actual_return_at < ?2 ${vehicleId ? "AND r.vehicle_id = ?3" : ""}
+       ORDER BY r.actual_return_at DESC`,
     )
     .bind(...(vehicleId ? [start, end, vehicleId] : [start, end]))
     .all<RentalListItem>();
@@ -354,7 +360,7 @@ export async function getRentalDetail(id: string) {
   return env().DB.prepare(`${SELECT_LIST} WHERE r.id = ?`).bind(id).first<RentalListItem>();
 }
 
-export type RentalTab = "active" | "upcoming" | "past" | "cancelled" | "all";
+export type RentalTab = "active" | "upcoming" | "past" | "unpaid" | "cancelled" | "all";
 
 const sortOf = (tab: RentalTab) => (tab === "active" ? { col: "end_at", dir: "ASC" } : tab === "upcoming" ? { col: "start_at", dir: "ASC" } : { col: "start_at", dir: "DESC" }) as { col: "end_at" | "start_at"; dir: "ASC" | "DESC" };
 
@@ -381,6 +387,7 @@ export async function listRentals(opts: { tab?: RentalTab; q?: string; vehicleId
   if (tab === "active") add("r.status = 'active'");
   if (tab === "upcoming") add("r.status = 'booked'");
   if (tab === "past") add("r.status = 'returned'");
+  if (tab === "unpaid") add("r.status = 'returned' AND r.payment_status = 'pending'");
   if (tab === "cancelled") add("r.status = 'cancelled'");
   if (opts.vehicleId) add("r.vehicle_id = ?", opts.vehicleId);
   if (opts.customerId) add("r.customer_id = ?", opts.customerId);
@@ -427,7 +434,7 @@ export async function rentalStats() {
 }
 
 export type FleetCard = {
-  vehicle: { id: string; registration_number: string; make: string; model: string; cover_photo_id: string | null };
+  vehicle: { id: string; registration_number: string; make: string; model: string; ownership: "own" | "network"; owner_name: string | null; cover_photo_id: string | null };
   state: "rented" | "pickup_due" | "available";
   overdue: boolean;
   current: RentalListItem | null; // active rental, or the booking that is due for pickup
@@ -439,7 +446,7 @@ export async function fleetBoard(): Promise<FleetCard[]> {
   const [veh, open] = await Promise.all([
     db
       .prepare(
-        `SELECT v.id, v.registration_number, v.make, v.model,
+        `SELECT v.id, v.registration_number, v.make, v.model, v.ownership, v.owner_name,
            (SELECT p.id FROM vehicle_photos p WHERE p.vehicle_id = v.id ORDER BY p.created_at LIMIT 1) AS cover_photo_id
          FROM vehicles v WHERE v.is_active = 1 ORDER BY v.make, v.model, v.registration_number`,
       )
@@ -494,7 +501,7 @@ export async function deleteCancelledRental(id: string, user: AuditUser): Promis
         entityType: "rental",
         entityId: id,
         rentalId: id,
-        summary: `Deleted cancelled booking ${d.rental_number}: ${carLabel(d)} for ${d.customer_name}, ${formatIST(d.start_at)} to ${formatIST(d.end_at)}, ${formatINR(d.total_paise)}`,
+        summary: `Deleted cancelled booking ${d.rental_number}: ${carLabel(d)} for ${d.customer_name}, ${formatIST(d.start_at)} to ${formatIST(d.end_at)}`,
       },
       "SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM rentals WHERE id = ?1)",
       id,
@@ -505,4 +512,121 @@ export async function deleteCancelledRental(id: string, user: AuditUser): Promis
   await Promise.all(photos.flatMap((p) => [PHOTOS.delete(p.r2_key).catch(() => {}), deleteThumb(PHOTOS, p.r2_key)]));
   await discardIfUnused(d.customer_id);
   return { ok: true };
+}
+
+export const correctionSchema = z
+  .object({
+    start_at: istDateTime("Start"),
+    end_at: istDateTime("Expected return"),
+    pickup_at: istDateTime("Pickup time"),
+    return_at: z.string().optional().transform((v) => (v ?? "").trim()),
+    total: z
+      .string()
+      .optional()
+      .transform((v, ctx) => {
+        if (!(v ?? "").trim()) return null;
+        const p = rupeesToPaise(v!);
+        if (p === null) ctx.addIssue({ code: "custom", message: "Total must be a valid amount like 7500 or 7500.50" });
+        return p;
+      }),
+    reason: z.string().trim().min(3, "Say briefly what was wrong").max(300),
+    password: z.string().min(1, "Enter your password"),
+  });
+export type CorrectionInput = z.infer<typeof correctionSchema>;
+
+/**
+ * Admin only (the caller checks the role and the password): fixes the dates of a rental that is out or already
+ * returned. For a returned rental the rent is recalculated from the corrected dates (days x rate + extra km) unless
+ * a total is typed. Written to the change log with the reason, in the same batch as the change.
+ */
+export async function correctRental(id: string, v: CorrectionInput, user: AuditUser): Promise<Result> {
+  const db = env().DB;
+  const cur = await getRental(id);
+  if (!cur) return { error: "Rental not found" };
+  if (cur.status !== "active" && cur.status !== "returned") return { error: "Only a rental that is out or returned can be corrected here" };
+  const returned = cur.status === "returned";
+  const returnAt = returned ? istInputToIso(v.return_at) : null;
+  if (returned && !returnAt) return { error: "Enter the return time" };
+  if (v.end_at <= v.start_at) return { error: "Expected return must be after the start" };
+  if (v.pickup_at > new Date(Date.now() + 2 * 60_000).toISOString()) return { error: "The pickup time can't be in the future" };
+  if (returnAt) {
+    if (returnAt <= v.pickup_at) return { error: "The return must be after the pickup" };
+    if (returnAt > new Date(Date.now() + 2 * 60_000).toISOString()) return { error: "The return time can't be in the future" };
+  }
+  if (new Date(v.end_at).getTime() - new Date(v.start_at).getTime() > MAX_DAYS * 864e5) return { error: `A rental can be at most ${MAX_DAYS} days` };
+
+  let total = cur.total_paise;
+  let extraKm = cur.extra_km;
+  let extraCharge = cur.extra_km_charge_paise;
+  if (returnAt) {
+    const km = cur.end_km === null ? null : extraKmCharge({ startIso: v.pickup_at, endIso: returnAt, limitPerDay: cur.daily_km_limit, ratePaise: cur.extra_km_rate_paise, startKm: cur.start_km, endKm: cur.end_km });
+    extraKm = km?.extra ?? 0;
+    extraCharge = km?.chargePaise ?? 0;
+    total = v.total ?? suggestTotalPaise(v.pickup_at, returnAt, cur.rate_snapshot_paise) + (km?.chargePaise ?? 0);
+  }
+
+  const before = { start: formatIST(cur.start_at), end: formatIST(cur.end_at), pickup: formatIST(cur.actual_pickup_at ?? cur.start_at), ret: cur.actual_return_at ? formatIST(cur.actual_return_at) : null, total: returned ? formatINR(cur.total_paise) : null };
+  const after = { start: formatIST(v.start_at), end: formatIST(v.end_at), pickup: formatIST(v.pickup_at), ret: returnAt ? formatIST(returnAt) : null, total: returned ? formatINR(total) : null };
+  const changes = diff({ start: "Start", end: "Expected return", pickup: "Picked up", ret: "Returned", total: "Total rent" }, before, after);
+  if (!changes.length) return { error: "Nothing was changed" };
+
+  const now = new Date().toISOString();
+  const occupiedFrom = v.start_at < v.pickup_at ? v.start_at : v.pickup_at;
+  const [r] = await db.batch([
+    db
+      .prepare(
+        `UPDATE rentals SET start_at=?3, end_at=?4, actual_pickup_at=?5, actual_return_at=?6, total_paise=?7, extra_km=?8, extra_km_charge_paise=?9, updated_at=?2
+         WHERE id=?1 AND status=?10 AND ${OVERLAP("rentals.vehicle_id", "?11", "?12", "?1")}`,
+      )
+      .bind(id, now, v.start_at, v.end_at, v.pickup_at, returnAt, total, extraKm, extraCharge, cur.status, occupiedFrom, returnAt ?? v.end_at),
+    // The recorded handover times follow the corrected ones.
+    db.prepare("UPDATE inspections SET inspected_at=?2 WHERE rental_id=?1 AND type='pickup' AND completed_at IS NOT NULL AND EXISTS (SELECT 1 FROM rentals WHERE id=?1 AND updated_at=?3)").bind(id, v.pickup_at, now),
+    ...(returnAt ? [db.prepare("UPDATE inspections SET inspected_at=?2 WHERE rental_id=?1 AND type='return' AND completed_at IS NOT NULL AND EXISTS (SELECT 1 FROM rentals WHERE id=?1 AND updated_at=?3)").bind(id, returnAt, now)] : []),
+    auditStatement(
+      user,
+      { action: "rental.updated", entityType: "rental", entityId: id, rentalId: id, summary: `Corrected a ${returned ? "returned" : "out"} rental (password confirmed): ${changes.map((c) => c.field.toLowerCase()).join(", ")}. Reason: ${v.reason}`, changes },
+      "SELECT 1 FROM rentals WHERE id = ?1 AND updated_at = ?2",
+      id,
+      now,
+    ),
+  ]);
+  return r.meta.changes ? { ok: true } : { error: await conflictMessage(cur.vehicle_id, occupiedFrom, returnAt ?? v.end_at, id) };
+}
+
+/** Returned rentals whose payment is still to come: how many and how much (optionally only those returned in a period). */
+export async function pendingPayments(period?: { start: string; end: string }, ownership?: "own" | "network") {
+  const row = await env()
+    .DB.prepare(`SELECT COUNT(*) AS n, COALESCE(SUM(r.total_paise), 0) AS t FROM rentals r JOIN vehicles v ON v.id = r.vehicle_id
+      WHERE r.status = 'returned' AND r.payment_status = 'pending' AND (?3 IS NULL OR v.ownership = ?3) AND (?1 IS NULL OR (r.actual_return_at >= ?1 AND r.actual_return_at < ?2))`)
+    .bind(period?.start ?? null, period?.end ?? null, ownership ?? null)
+    .first<{ n: number; t: number }>();
+  return { count: row?.n ?? 0, total_paise: row?.t ?? 0 };
+}
+
+/** Marks a returned rental's payment received (or back to pending). Staff and admins; logged. */
+export async function setPayment(id: string, status: "paid" | "pending", user: AuditUser): Promise<Result> {
+  const db = env().DB;
+  const cur = await getRental(id);
+  if (!cur) return { error: "Rental not found" };
+  if (cur.status !== "returned") return { error: "Payment is recorded once the rental is returned" };
+  if (cur.payment_status === status) return { ok: true };
+  const now = new Date().toISOString();
+  const [r] = await db.batch([
+    db.prepare("UPDATE rentals SET payment_status=?2, paid_at=?3, updated_at=?4 WHERE id=?1 AND status='returned' AND payment_status<>?2").bind(id, status, status === "paid" ? now : null, now),
+    auditStatement(
+      user,
+      {
+        action: "rental.updated",
+        entityType: "rental",
+        entityId: id,
+        rentalId: id,
+        summary: status === "paid" ? `Marked payment received (${formatINR(cur.total_paise)})` : `Marked payment pending (${formatINR(cur.total_paise)})`,
+        changes: [{ field: "Payment", from: cur.payment_status === "paid" ? "Paid" : "Pending", to: status === "paid" ? "Paid" : "Pending" }],
+      },
+      "SELECT 1 FROM rentals WHERE id = ?1 AND updated_at = ?2",
+      id,
+      now,
+    ),
+  ]);
+  return r.meta.changes ? { ok: true } : { error: "The rental changed. Reload and try again." };
 }

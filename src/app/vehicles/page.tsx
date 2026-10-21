@@ -8,19 +8,25 @@ import { ChipNav } from "@/components/chip-nav";
 
 export const metadata = { title: "Vehicles" };
 
+const OWNERS = [
+  [undefined, "All"],
+  ["own", "Own"],
+  ["network", "Network"],
+] as const;
+
 const TABS = [
   ["active", "Active"],
   ["inactive", "Inactive"],
-  ["all", "All"],
 ] as const;
 
-export default async function VehiclesPage({ searchParams }: { searchParams: Promise<{ q?: string; status?: string }> }) {
+export default async function VehiclesPage({ searchParams }: { searchParams: Promise<{ q?: string; status?: string; owner?: string }> }) {
   await requireUser();
   const sp = await searchParams;
   const status = sp.status === "inactive" || sp.status === "all" ? sp.status : "active";
-  const vehicles = await listVehicles({ q: sp.q, status });
-  const here = selfUrl("/vehicles", { q: sp.q, status });
-  const href = (s: string) => `/vehicles?${new URLSearchParams({ ...(sp.q ? { q: sp.q } : {}), status: s })}`;
+  const owner = sp.owner === "own" || sp.owner === "network" ? sp.owner : undefined;
+  const vehicles = await listVehicles({ q: sp.q, status, ownership: owner });
+  const here = selfUrl("/vehicles", { q: sp.q, status, owner });
+  const href = (s: string, o: string | undefined) => `/vehicles?${new URLSearchParams({ ...(sp.q ? { q: sp.q } : {}), status: s, ...(o ? { owner: o } : {}) })}`;
 
   return (
     <div className="space-y-4">
@@ -30,11 +36,16 @@ export default async function VehiclesPage({ searchParams }: { searchParams: Pro
       </div>
       <form className="flex gap-2" role="search">
         <input type="hidden" name="status" value={status} />
+        {owner && <input type="hidden" name="owner" value={owner} />}
         <input name="q" defaultValue={sp.q ?? ""} type="search" placeholder="Search car or reg. no." className="input" aria-label="Search vehicles" />
         <button className="btn btn-secondary">Search</button>
       </form>
       <ScrollRestore />
-      <ChipNav label="Filter vehicles" chips={TABS.map(([s, label]) => ({ href: href(s), label, active: status === s }))} />
+      <ChipNav
+        label="Filter vehicles"
+        chips={TABS.map(([s, label]) => ({ href: href(s, owner), label, active: status === s }))}
+        select={{ label: "Whose vehicles", options: OWNERS.map(([o, label]) => ({ href: href(status, o), label, active: owner === o })) }}
+      />
       {vehicles.length === 0 ? (
         <p className="py-8 text-center text-slate-500">No vehicles found.</p>
       ) : (
@@ -53,6 +64,7 @@ export default async function VehiclesPage({ searchParams }: { searchParams: Pro
                   <p className="font-mono text-sm text-slate-600">{v.registration_number}</p>
                   <p className="text-sm capitalize text-slate-500">{v.fuel_type} · {v.transmission} · {v.seats} seats</p>
                   <p className="text-sm font-medium">{formatINR(v.daily_rate_paise)}/day{!v.is_active && " · Inactive"}</p>
+                  {v.ownership === "network" && <p className="truncate text-xs text-violet-700">Network{v.owner_name ? ` · ${v.owner_name}` : ""}</p>}
                 </div>
               </Link>
             </li>

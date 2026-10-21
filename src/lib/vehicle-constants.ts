@@ -3,3 +3,5 @@ export const FUEL_TYPES = ["petrol", "diesel", "cng", "electric", "hybrid"] as c
 export const TRANSMISSIONS = ["manual", "automatic"] as const;
 export const MAX_PHOTOS = 8;
 export const MAX_PHOTO_BYTES = 400 * 1024; // client targets ~300 KB; server allows headroom
+export const OWNERSHIPS = ["own", "network"] as const;
+export const OWNERSHIP_LABEL = { own: "Own", network: "Network" } as const;

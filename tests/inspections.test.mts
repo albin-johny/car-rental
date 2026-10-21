@@ -11,7 +11,7 @@ import { isLatePhoto } from "../src/lib/inspection-constants.ts";
 before(async () => {
   await seedBasics();
   // One car per test, so a rental left "out" in one test doesn't block the next (that rule is tested on purpose below).
-  for (let n = 1; n <= 30; n++) {
+  for (let n = 1; n <= 34; n++) {
     await DB.prepare(`INSERT INTO vehicles(id,registration_number,make,model,year,fuel_type,transmission,seats,odometer_km,daily_rate_paise,deposit_paise,is_active,created_at,updated_at) VALUES (?1,?1,'Hyundai','i20',2023,'diesel','manual',5,10000,300000,0,1,?2,?2)`).bind(`w${n}`, new Date().toISOString()).run();
   }
 });
@@ -327,10 +327,11 @@ test("return: km beyond the daily allowance is charged at the rental's own rate,
     assert.ok("ok" in res, JSON.stringify(res));
     return (await DB.prepare("SELECT total_paise t, extra_km x, extra_km_charge_paise c, extra_km_rate_paise rate, daily_km_limit l FROM rentals WHERE id=?").bind(r).first()) as { t: number; x: number; c: number; rate: number; l: number };
   };
-  // 700 driven - 600 allowed = 100 extra x Rs 10 (discounted rate) = Rs 1,000 on top of Rs 5,000.
-  assert.deepEqual(await run("w24", "2031-01-01T10:00", "2031-01-03T10:00", { extra_km_rate: "10" }), { t: 600000, x: 100, c: 100000, rate: 1000, l: 300 });
+  // 700 driven - 300 allowed = 400 extra x Rs 10 (discounted rate) = Rs 4,000 on top of the day's rent.
+  // The rental is out and back within the same day here (the real pickup/return times drive the rent), so 1 day: Rs 3,000 rent, 300 km allowed, 400 extra.
+  assert.deepEqual(await run("w24", "2031-01-01T10:00", "2031-01-03T10:00", { extra_km_rate: "10" }), { t: 700000, x: 400, c: 400000, rate: 1000, l: 300 });
   // Blank rate on the booking uses the vehicle's Rs 12; staff then give a discount on the whole total.
-  assert.deepEqual(await run("w25", "2031-02-01T10:00", "2031-02-03T10:00", {}, "5800"), { t: 580000, x: 100, c: 120000, rate: 1200, l: 300 });
+  assert.deepEqual(await run("w25", "2031-02-01T10:00", "2031-02-03T10:00", {}, "5800"), { t: 580000, x: 400, c: 480000, rate: 1200, l: 300 });
 });
 
 test("return: no allowance set means no extra-km charge", async () => {
@@ -364,4 +365,33 @@ test("only a cancelled rental can be deleted; its draft and photos go, the audit
   // A returned rental is never deletable.
   const done = await book({ vehicle_id: "w29", start_at: "2026-01-01T10:00", end_at: "2026-01-02T10:00", record_as: "returned", start_km: "1", end_km: "2" });
   assert.match(String((await deleteCancelledRental(done, admin) as { error: string }).error), /Only a cancelled/);
+});
+
+test("payment: a return defaults to paid; pending can be marked paid later, logged; only returned rentals", async () => {
+  const { setPayment, pendingPayments } = await import("../src/lib/rentals.ts");
+  const run = async (vehicle: string, start: string, end: string, extra: Record<string, string>) => {
+    const r = await book({ vehicle_id: vehicle, start_at: start, end_at: end });
+    const p = await draft(r, "pickup");
+    await addInspectionPhoto(p, jpeg(), staff);
+    await completeInspection(p, await readings({ odometer_km: "10000" }), staff);
+    assert.ok("error" in (await setPayment(r, "paid", staff)), "not returned yet");
+    const i = await draft(r, "return");
+    await addInspectionPhoto(i, jpeg(), staff);
+    assert.ok("ok" in (await completeInspection(i, await readings({ odometer_km: "10100", ...extra }), staff)));
+    return r;
+  };
+  const row = async (id: string) => (await DB.prepare("SELECT payment_status s, paid_at p FROM rentals WHERE id=?").bind(id).first()) as { s: string; p: string | null };
+  const before = (await pendingPayments()).count;
+  const a = await run("w31", "2031-05-01T10:00", "2031-05-02T10:00", {});
+  assert.equal((await row(a)).s, "paid");
+  assert.ok((await row(a)).p, "paid time recorded");
+  const b = await run("w32", "2031-05-01T10:00", "2031-05-02T10:00", { payment: "pending" });
+  assert.deepEqual(await row(b), { s: "pending", p: null });
+  assert.equal((await pendingPayments()).count, before + 1);
+  assert.ok("ok" in (await setPayment(b, "paid", staff)));
+  assert.equal((await row(b)).s, "paid");
+  assert.equal((await pendingPayments()).count, before);
+  const log = (await DB.prepare("SELECT user_name, changes FROM audit_logs WHERE rental_id=? AND summary LIKE 'Marked payment%'").bind(b).first()) as { user_name: string; changes: string };
+  assert.equal(log.user_name, "Sam Staff");
+  assert.deepEqual(JSON.parse(log.changes), [{ field: "Payment", from: "Pending", to: "Paid" }]);
 });

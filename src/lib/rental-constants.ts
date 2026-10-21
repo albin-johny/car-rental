@@ -30,6 +30,16 @@ export function suggestTotalPaise(startIso: string, endIso: string, ratePaise: n
 }
 
 /**
+ * Rent worked out from the dates: an upcoming booking over its booked period, a car that is out up to now
+ * (grows with every 24 hours), anything else has a settled total instead (null).
+ */
+export function expectedRentPaise(r: { status: RentalStatus; start_at: string; end_at: string; actual_pickup_at: string | null; rate_snapshot_paise: number }, nowMs = Date.now()): number | null {
+  if (r.status === "booked") return suggestTotalPaise(r.start_at, r.end_at, r.rate_snapshot_paise);
+  if (r.status === "active") return suggestTotalPaise(r.actual_pickup_at ?? r.start_at, new Date(nowMs).toISOString(), r.rate_snapshot_paise);
+  return null;
+}
+
+/**
  * Extra-km billing. The allowance is the daily limit x the booked days (same days the rent is based on).
  * A limit of 0 means no allowance is set, so nothing is ever charged.
  */

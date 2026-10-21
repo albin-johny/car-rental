@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { hashPassword } from "better-auth/crypto";
+import { hashPassword, verifyPassword } from "better-auth/crypto";
 import { env } from "./env";
 
 export type StaffUser = { id: string; name: string; username: string | null; role: "admin" | "staff"; disabled: number; createdAt: string };
@@ -94,4 +94,12 @@ export async function setRole(userId: string, role: "admin" | "staff", actorId: 
   if (r.meta.changes) return { ok: true };
   const u = await db.prepare(`SELECT role FROM "user" WHERE id = ?`).bind(userId).first<{ role: string }>();
   return u ? { error: "At least one active admin must remain" } : { error: "User not found" };
+}
+
+/** Re-checks the signed-in person's own password (to confirm a sensitive change). */
+export async function checkPassword(userId: string, password: string): Promise<boolean> {
+  if (!password) return false;
+  const row = await env().DB.prepare(`SELECT password FROM "account" WHERE userId = ? AND providerId = 'credential'`).bind(userId).first<{ password: string | null }>();
+  if (!row?.password) return false;
+  return verifyPassword({ hash: row.password, password });
 }

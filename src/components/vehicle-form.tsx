@@ -6,7 +6,7 @@ import { DocFilePicker } from "./doc-file-picker";
 import { DOC_LABEL, DOC_TYPES, type DocType } from "@/lib/vehicle-docs-shared";
 import { uploadVehicleDoc } from "@/lib/service-bills-upload";
 import { withBack } from "@/lib/nav";
-import { FUEL_TYPES, TRANSMISSIONS } from "@/lib/vehicle-constants";
+import { FUEL_TYPES, OWNERSHIP_LABEL, TRANSMISSIONS } from "@/lib/vehicle-constants";
 import type { FormState } from "@/app/vehicles/actions";
 
 type Action = (prev: FormState, fd: FormData) => Promise<FormState>;
@@ -29,6 +29,7 @@ export function VehicleForm({
   const [staged, setStaged] = useState<Record<DocType, File[]>>({ insurance: [], puc: [], registration: [] });
   const [uploading, setUploading] = useState("");
   const [failed, setFailed] = useState<{ id: string; failures: string[] } | null>(null);
+  const [ownership, setOwnership] = useState(initial.ownership ?? "own");
   const handled = useRef<typeof state>(null);
 
   // The vehicle (and a row for each paper) is saved first; then the chosen files are uploaded and we open the vehicle.
@@ -86,6 +87,16 @@ export function VehicleForm({
         {field("daily_rate_paise", "Daily rate (₹)", { required: true, inputMode: "decimal", placeholder: "2500" })}
         {field("daily_km_limit", "Km allowed per day", { required: true, type: "number", inputMode: "numeric", placeholder: "300" })}
         {field("extra_km_rate_paise", "Extra km rate (₹)", { required: true, inputMode: "decimal", placeholder: "10" })}
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="label" htmlFor="ownership">Whose car</label>
+          <select id="ownership" name="ownership" value={ownership} onChange={(e) => setOwnership(e.target.value)} className="input">
+            <option value="own">{OWNERSHIP_LABEL.own} (our fleet)</option>
+            <option value="network">{OWNERSHIP_LABEL.network} (friend)</option>
+          </select>
+        </div>
+        {ownership === "network" && field("owner_name", "Owner", { placeholder: "e.g. Rahul (friend)", maxLength: 80 })}
       </div>
       <div>
         <label className="label" htmlFor="notes">Notes</label>

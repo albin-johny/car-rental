@@ -3,10 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdmin, requireUser } from "@/lib/session";
-import { createRental, deleteCancelledRental, listRentalsPage, type RentalListItem, type RentalTab, rentalSchema, transitionRental, updateRental, type Transition } from "@/lib/rentals";
+import { correctRental, correctionSchema, createRental, deleteCancelledRental, setPayment, listRentalsPage, type RentalListItem, type RentalTab, rentalSchema, transitionRental, updateRental, type Transition } from "@/lib/rentals";
 import { customerFieldsSchema, normalizePhone, updateCustomer } from "@/lib/customers";
 import type { FormState } from "../vehicles/actions";
 import { safeBack, withBack } from "@/lib/nav";
+import { checkPassword } from "@/lib/staff";
 
 function parse(formData: FormData) {
   const values = Object.fromEntries([...formData].filter(([, v]) => typeof v === "string")) as Record<string, string>;
@@ -69,7 +70,7 @@ export async function updateCustomerAction(id: string, _: FormState, formData: F
   return { message: "Saved", values };
 }
 
-const TABS = ["active", "upcoming", "past", "cancelled", "all"] as const;
+const TABS = ["active", "upcoming", "past", "unpaid", "cancelled", "all"] as const;
 
 /** "Show more" on the Rentals tab: the page after `after` for the same filters. */
 export async function loadMoreRentalsAction(f: { tab: string; q?: string; vehicle?: string }, after: string): Promise<{ rows: RentalListItem[]; next: string | null }> {
@@ -87,4 +88,32 @@ export async function deleteRentalAction(id: string, back: string): Promise<{ er
   revalidatePath("/customers");
   revalidatePath("/reports", "layout");
   redirect(safeBack(back, "/rentals"));
+}
+
+/** Admin only: fix the dates of a rental that is out or returned. Needs the admin's own password; logged with a reason. */
+export async function correctRentalAction(id: string, _: FormState, formData: FormData): Promise<FormState> {
+  const user = await requireAdmin();
+  const values = Object.fromEntries([...formData].filter(([, v]) => typeof v === "string")) as Record<string, string>;
+  const { password, ...keep } = values;
+  const p = correctionSchema.safeParse(values);
+  if (!p.success) {
+    const errors: Record<string, string> = {};
+    for (const i of p.error.issues) errors[String(i.path[0])] ??= i.message;
+    return { errors, values: keep, message: "Please fix the highlighted fields" };
+  }
+  if (!(await checkPassword(user.id, p.data.password))) return { errors: { password: "Password is incorrect" }, values: keep, message: "Nothing was changed" };
+  const r = await correctRental(id, p.data, user);
+  if ("error" in r) return { message: r.error, errors: {}, values: keep };
+  refresh(id);
+  revalidatePath("/reports", "layout");
+  return { message: "Saved. The change is in the history.", values: keep };
+}
+
+/** Staff and admins: record that the payment arrived (or put it back to pending). */
+export async function setPaymentAction(id: string, status: "paid" | "pending"): Promise<{ error?: string }> {
+  const user = await requireUser();
+  const r = await setPayment(id, status === "paid" ? "paid" : "pending", user);
+  refresh(id);
+  revalidatePath("/reports", "layout");
+  return "error" in r ? { error: r.error } : {};
 }
