@@ -22,6 +22,12 @@ function amount(r: RentalListItem) {
   return { text: formatINR(e), hint: r.status === "active" ? "expected so far" : "estimate" };
 }
 
+/** Returned rentals show what actually happened (picked up → returned), not the booked/expected dates. */
+function period(r: RentalListItem) {
+  if (r.status === "returned") return `${formatISTCompact(r.actual_pickup_at ?? r.start_at)} → ${formatISTCompact(r.actual_return_at ?? r.end_at)}`;
+  return `${formatISTCompact(r.start_at)} → ${formatISTCompact(r.end_at)}`;
+}
+
 export function RentalCard({ r, from, compact = false }: { r: RentalListItem; from?: string; compact?: boolean }) {
   const amt = amount(r);
   if (compact) {
@@ -33,7 +39,7 @@ export function RentalCard({ r, from, compact = false }: { r: RentalListItem; fr
           <StatusBadge status={r.status} pending={r.payment_status === "pending"} />
         </div>
         <div className="mt-0.5 flex items-center justify-between gap-2 text-sm text-slate-500">
-          <span className="min-w-0 truncate">{formatISTCompact(r.start_at)} → {formatISTCompact(r.end_at)}</span>
+          <span className="min-w-0 truncate">{period(r)}</span>
           {amt && <span className="shrink-0 font-semibold text-slate-900">{amt.text}{amt.hint && <span className="ml-1 text-xs font-normal text-slate-500">{amt.hint}</span>}</span>}
         </div>
       </Link>
@@ -47,7 +53,7 @@ export function RentalCard({ r, from, compact = false }: { r: RentalListItem; fr
       </div>
       <p className="mt-1 font-medium">{r.customer_name} <span className="font-normal text-slate-500">· {r.customer_phone}</span></p>
       <p className="text-sm text-slate-600">{r.make} {r.model} · <span className="font-mono">{r.registration_number}</span></p>
-      <p className="text-sm text-slate-500">{formatISTCompact(r.start_at)} → {formatISTCompact(r.end_at)}</p>
+      <p className="text-sm text-slate-500">{period(r)}</p>
       {r.start_km !== null && (
         <p className="text-sm text-slate-500">
           {new Intl.NumberFormat("en-IN").format(r.start_km)} km{r.end_km !== null && <> → {new Intl.NumberFormat("en-IN").format(r.end_km)} km · <b className="font-medium text-slate-700">{new Intl.NumberFormat("en-IN").format(r.end_km - r.start_km)} km driven</b></>}
